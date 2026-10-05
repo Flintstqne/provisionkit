@@ -35,7 +35,7 @@ def create_app(overrides=None):
     def inject():
         return {"csrf_token": auth.csrf_token, "inv": app.config["INVENTORY"], "demo": app.config["DEMO"],
                 "ago": fleet.ago, "uptime": fleet.humanize_uptime, "group_info": GROUP_INFO,
-                "env_name": _env_name(app), "now": time.time()}
+                "now": time.time()}
 
     app.add_template_filter(lambda t: time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t)), "timestamp")
 
@@ -60,13 +60,6 @@ def create_app(overrides=None):
     for code, title in ((400, "Bad request"), (403, "Access denied"), (404, "Not found"), (413, "Request too large")):
         app.register_error_handler(code, lambda e, c=code, t=title: error_page(e, c, t))
     return app
-
-
-def _env_name(app):
-    try:
-        return app.config["INVENTORY"].raw_vars().get("provisionkit_environment", "")
-    except OSError:
-        return ""
 
 
 def _secret_key(app):

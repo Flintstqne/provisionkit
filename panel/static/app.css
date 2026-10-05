@@ -143,4 +143,4 @@ fieldset { border: 0; padding: 0; margin: 0 0 16px; }
 td a b, .tag { white-space: nowrap; }
 td:first-child { white-space: nowrap; }
 .matrix th { white-space: normal; vertical-align: bottom; }
-.card + .card { margin-top: 16px; }
+.content > .card + .card { margin-top: 16px; }
