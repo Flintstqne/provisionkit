@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""provisionkit: keep this ProvisionKit checkout on the controller current and healthy.
+
+  provisionkit update     pull the latest main from GitHub, then make sure everything works
+  provisionkit check      run the health checks without changing anything
+  provisionkit status     show the version, whether an update is waiting, and the panel state
+  provisionkit version    print the installed version
+  provisionkit install    put this command on your PATH (/usr/local/bin/provisionkit), needs sudo
+
+Standard library only, so it runs before the virtualenv exists.
+"""
+import argparse
+import os
+import pwd
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent  # follows the /usr/local/bin symlink back into the checkout
+REMOTE, BRANCH = "origin", "main"
+UNIT = Path("/etc/systemd/system/provisionkit-panel.service")
+LINK = Path("/usr/local/bin/provisionkit")
+SERVICE = "provisionkit-panel.service"
+ENV_MODULES = "import flask, ruamel.yaml, waitress, jwt, ansible"
+RESTART_IF_CHANGED = ("panel/", "scripts/install_panel.sh", "scripts/provisionkit")
+DEFAULT_KEY = "/home/provisionkit/.ssh/provisionkit_ed25519"
+
+
+class Failure(Exception):
+    pass
+
+
+class Result:
+    """One health check outcome: ok, warn or fail."""
+    def __init__(self, level, name, detail=""):
+        self.level, self.name, self.detail = level, name, detail
+
+    def __repr__(self):
+        return f"{self.level}: {self.name}" + (f" ({self.detail})" if self.detail else "")
+
+
+class Kit:
+    def __init__(self, repo=REPO, out=print):
+        self.repo = Path(repo)
+        self.out = out
+        self.owner = pwd.getpwuid(self.repo.stat().st_uid).pw_name
+        self.py = self.repo / ".venv" / "bin" / "python"
+
+    # ---- running commands as the account that owns the checkout -----------------------------------------------------
+    def sh(self, cmd, check=True, root=False, timeout=600):
+        """Run a command in the repo. As root, drop to the checkout's owner so files and ssh keys stay theirs."""
+        cmd = [str(c) for c in cmd]
+        if not root and os.geteuid() == 0 and self.owner != "root":
+            cmd = ["sudo", "-u", self.owner, "-H", *cmd]
+        try:
+            r = subprocess.run(cmd, cwd=self.repo, text=True, capture_output=True, timeout=timeout,
+                               stdin=subprocess.DEVNULL)
+        except FileNotFoundError:
+            raise Failure(f"{cmd[0]} is not installed.") from None
+        except subprocess.TimeoutExpired:
+            raise Failure(f"{' '.join(cmd[:3])} timed out.") from None
+        if check and r.returncode:
+            raise Failure((r.stderr or r.stdout).strip() or f"{' '.join(cmd[:3])} failed")
+        return r
+
+    def git(self, *args, check=True):
+        return self.sh(["git", *args], check=check)
+
+    # ---- state ------------------------------------------------------------------------------------------------------
+    def head(self):
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def branch(self):
+        return self.git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+    def dirty_files(self):
+        """Tracked files with local changes. Untracked and ignored files, such as inventories/local, do not count."""
+        return [ln for ln in self.git("status", "--porcelain", "--untracked-files=no").stdout.splitlines() if ln]
+
+    def fetch(self):
+        r = self.git("fetch", "--prune", REMOTE, BRANCH, check=False)
+        if r.returncode:
+            raise Failure("Could not reach GitHub: " + ((r.stderr or r.stdout).strip().splitlines() or ["no output"])[-1]
+                          + "\nCheck the network and that this account's GitHub key still works.")
+
+    def ahead_behind(self):
+        a, b = self.git("rev-list", "--left-right", "--count", f"HEAD...{REMOTE}/{BRANCH}").stdout.split()
+        return int(a), int(b)
+
+    def service_installed(self):
+        return UNIT.exists()
+
+    def service_active(self):
+        r = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True, text=True)
+        return r.stdout.strip() == "active"
+
+    def panel_port(self):
+        m = re.search(r"--port\s+(\d+)", UNIT.read_text()) if UNIT.exists() else None
+        return int(m.group(1)) if m else 8080
+
+    def panel_responds(self, port=None):
+        """Any HTTP answer counts. With PANEL_ALLOWED_HOSTS set the panel answers 400 to a bare 127.0.0.1 request."""
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port or self.panel_port()}/healthz", timeout=5)
+            return True
+        except urllib.error.HTTPError:
+            return True
+        except OSError:
+            return False
+
+    # ---- update -----------------------------------------------------------------------------------------------------
+    def update(self, skip_env=False, skip_service=False, rollback=True):
+        """Fast-forward to origin/main, then make sure the environment, the service and the checks are right."""
+        if self.dirty_files():
+            raise Failure("This checkout has local changes to tracked files, so it will not update:\n  "
+                          + "\n  ".join(self.dirty_files()[:10]) + "\nCommit, stash or discard them first.")
+        if self.branch() != BRANCH:
+            raise Failure(f"This checkout is on '{self.branch()}', not '{BRANCH}'. Run: git checkout {BRANCH}")
+        self.out(f"Fetching {REMOTE}/{BRANCH} ...")
+        self.fetch()
+        ahead, behind = self.ahead_behind()
+        if ahead and behind:
+            raise Failure(f"Local main has diverged from GitHub ({ahead} local commit(s), {behind} new on GitHub). "
+                          "Nothing was changed. Resolve it by hand.")
+        old, changed = self.head(), set()
+        if behind:
+            self.out(f"{behind} new commit(s):")
+            self.out(self.git("log", "--oneline", "--max-count=20", f"HEAD..{REMOTE}/{BRANCH}").stdout.rstrip())
+            changed = set(self.git("diff", "--name-only", f"HEAD..{REMOTE}/{BRANCH}").stdout.split())
+            self.git("merge", "--ff-only", f"{REMOTE}/{BRANCH}")
+            self.out("Updated.")
+        else:
+            self.out("Already up to date." if not ahead else
+                     f"Nothing to pull ({ahead} local commit(s) not on GitHub yet).")
+        try:
+            if not skip_env:
+                self.ensure_env("panel/requirements.txt" in changed)
+            if not skip_service:
+                self.ensure_service(changed)
+        except Failure as e:
+            if rollback and old != self.head():
+                self.out(f"Problem after updating: {e}\nRolling back to {old[:8]} ...")
+                self.git("reset", "--hard", old)
+                try:
+                    self.ensure_env(True)
+                    self.ensure_service(set(changed), force=True)
+                except Failure as again:
+                    raise Failure(f"Rolled back the code to {old[:8]}, but the service still has a problem: {again}") from e
+                raise Failure(f"The update failed and was rolled back to {old[:8]}: {e}") from e
+            raise
+        results = self.check()
+        self.report(results)
+        return results
+
+    def ensure_env(self, requirements_changed=False):
+        if not self.py.exists():
+            self.out("Creating the Python environment ...")
+            self.sh(["python3", "-m", "venv", self.repo / ".venv"])
+            requirements_changed = True
+        elif self.sh([self.py, "-c", ENV_MODULES], check=False).returncode:
+            requirements_changed = True
+        if requirements_changed:
+            self.out("Installing dependencies ...")
+            self.sh([self.py, "-m", "pip", "install", "--quiet", "-r", "panel/requirements.txt", "ansible-core<2.20"])
+
+    def unit_is_current(self, port):
+        r = self.sh(["bash", "scripts/install_panel.sh", "--print-unit", "--user", self.owner, "--port", str(port)],
+                    check=False)
+        return r.returncode == 0 and UNIT.exists() and UNIT.read_text() == r.stdout
+
+    def ensure_service(self, changed, force=False):
+        if not self.service_installed():
+            self.out("The panel service is not installed (sudo scripts/install_panel.sh installs it). Skipping.")
+            return
+        if os.geteuid() != 0:
+            raise Failure("Restarting the panel needs root. Run: sudo provisionkit update")
+        port = self.panel_port()
+        stale = not self.unit_is_current(port)
+        if not (force or stale or not self.service_active() or any(f.startswith(RESTART_IF_CHANGED) for f in changed)):
+            self.out("Panel service: no restart needed.")
+            return
+        self.out("Restarting the panel service ...")
+        r = self.sh(["bash", "scripts/install_panel.sh", "--user", self.owner, "--port", str(port), "--skip-admin"],
+                    root=True, check=False)
+        if r.returncode:
+            raise Failure("The panel did not come back healthy.\n" + "\n".join(
+                (r.stdout + r.stderr).strip().splitlines()[-12:]))
+        self.out("Panel service: restarted and healthy.")
+
+    # ---- checks -----------------------------------------------------------------------------------------------------
+    def check(self):
+        results = [self.check_git(), self.check_env(), *self.check_playbooks(), self.check_inventory(), self.check_key()]
+        if self.service_installed():
+            results.append(self.check_service())
+        return results
+
+    def check_git(self):
+        if self.dirty_files():
+            return Result("warn", "git", "local changes to tracked files")
+        return Result("ok", "git", f"{self.branch()} at {self.head()[:8]}")
+
+    def check_env(self):
+        if not self.py.exists():
+            return Result("fail", "python environment", "missing .venv (run: provisionkit update)")
+        r = self.sh([self.py, "-c", ENV_MODULES], check=False)
+        return Result("ok", "python environment") if not r.returncode else \
+            Result("fail", "python environment", "dependencies missing (run: provisionkit update)")
+
+    def check_playbooks(self):
+        out, ansible = [], self.repo / ".venv" / "bin" / "ansible-playbook"
+        if not ansible.exists():
+            return [Result("fail", "playbook syntax", "ansible-playbook not installed in .venv")]
+        bad = [p.name for p in sorted((self.repo / "playbooks").glob("*.yml"))
+               if self.sh([ansible, "--syntax-check", f"playbooks/{p.name}"], check=False).returncode]
+        out.append(Result("fail", "playbook syntax", "errors in " + ", ".join(bad)) if bad else
+                   Result("ok", "playbook syntax"))
+        return out
+
+    def check_inventory(self):
+        inv = self.repo / "inventories" / "local"
+        if not inv.exists():
+            return Result("warn", "inventory", "inventories/local does not exist yet")
+        r = self.sh([self.py, "scripts/validate_inventory.py", "inventories/local"], check=False)
+        text = (r.stdout + r.stderr).strip()
+        return Result("ok", "inventory") if not r.returncode else Result("fail", "inventory", text.replace("\n", "; "))
+
+    def deploy_key_path(self):
+        f = self.repo / "inventories" / "local" / "group_vars" / "all.yml"
+        m = re.search(r"^provisionkit_deploy_key_file:\s*['\"]?([^\s'\"]+)", f.read_text(), re.M) if f.exists() else None
+        return m.group(1) if m else DEFAULT_KEY
+
+    def check_key(self):
+        key = Path(self.deploy_key_path())
+        r = self.sh(["test", "-r", key], check=False)
+        if r.returncode:
+            return Result("fail", "deploy key", f"{key} is missing or not readable by {self.owner}")
+        mode = self.sh(["stat", "-c", "%a", key], check=False).stdout.strip()
+        if mode and int(mode, 8) & 0o077:
+            return Result("warn", "deploy key", f"{key} is accessible to other users (mode {mode}); use 600")
+        probe = self.sh(["ssh-keygen", "-y", "-P", "", "-f", key], check=False)
+        if probe.returncode:
+            return Result("warn", "deploy key", "has a passphrase, so Ansible jobs from the panel and the timer cannot use it")
+        return Result("ok", "deploy key")
+
+    def check_service(self):
+        if not self.service_active():
+            return Result("fail", "panel service", f"{SERVICE} is not running")
+        if not self.panel_responds():
+            return Result("fail", "panel service", "running but not answering on port " + str(self.panel_port()))
+        return Result("ok", "panel service", f"running on 127.0.0.1:{self.panel_port()}")
+
+    def report(self, results):
+        self.out("")
+        for r in results:
+            self.out(f"  {r.level.upper():<4}  {r.name}" + (f": {r.detail}" if r.detail else ""))
+        bad = sum(r.level == "fail" for r in results)
+        warn = sum(r.level == "warn" for r in results)
+        self.out(f"\n{'Everything is good to go.' if not bad and not warn else ''}"
+                 f"{f'{bad} problem(s) need attention.' if bad else ''}"
+                 f"{f' {warn} warning(s).' if warn else ''}".strip())
+
+    # ---- other commands ---------------------------------------------------------------------------------------------
+    def version(self):
+        return self.git("log", "-1", "--format=%h %cs %s").stdout.strip()
+
+    def status(self, fetch=True):
+        self.out(f"Version: {self.version()}")
+        self.out(f"Branch:  {self.branch()}" + ("" if self.branch() == BRANCH else f"  (updates follow {BRANCH})"))
+        if fetch:
+            try:
+                self.fetch()
+                ahead, behind = self.ahead_behind()
+                self.out("Update:  " + (f"{behind} new commit(s) on GitHub. Run: provisionkit update" if behind
+                                        else "up to date"))
+            except Failure as e:
+                self.out(f"Update:  could not check ({str(e).splitlines()[0]})")
+        if self.service_installed():
+            self.out("Panel:   " + ("running and answering" if self.service_active() and self.panel_responds()
+                                    else "NOT healthy"))
+        else:
+            self.out("Panel:   service not installed")
+
+    def install_link(self):
+        if os.geteuid() != 0:
+            raise Failure("Run with sudo: sudo scripts/provisionkit install")
+        target = self.repo / "scripts" / "provisionkit"
+        LINK.parent.mkdir(parents=True, exist_ok=True)
+        if LINK.is_symlink() or LINK.exists():
+            LINK.unlink()
+        LINK.symlink_to(target)
+        self.out(f"Installed {LINK} -> {target}")
+
+
+def needs_root(kit, command):
+    """update needs root only to restart the panel; install always does."""
+    return command == "install" or (command == "update" and kit.service_installed())
+
+
+def main(argv=None, kit=None):
+    ap = argparse.ArgumentParser(prog="provisionkit", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    sub = ap.add_subparsers(dest="command", required=True)
+    up = sub.add_parser("update", help="pull the latest main and make sure everything works")
+    up.add_argument("--skip-env", action="store_true", help="do not touch the Python environment")
+    up.add_argument("--skip-service", action="store_true", help="do not touch the panel service")
+    up.add_argument("--no-rollback", action="store_true", help="keep the new code even if the panel fails to start")
+    sub.add_parser("check", help="run the health checks")
+    st = sub.add_parser("status", help="show version, pending update and panel state")
+    st.add_argument("--no-fetch", action="store_true", help="do not contact GitHub")
+    sub.add_parser("version", help="print the installed version")
+    sub.add_parser("install", help="put this command on your PATH (needs sudo)")
+    a = ap.parse_args(argv)
+
+    kit = kit or Kit()
+    me = pwd.getpwuid(os.geteuid()).pw_name
+    if os.geteuid() != 0 and me != kit.owner:
+        print(f"This checkout belongs to {kit.owner}. Run: sudo provisionkit {a.command}", file=sys.stderr)
+        return 1
+    if needs_root(kit, a.command) and os.geteuid() != 0:
+        os.execvp("sudo", ["sudo", str(Path(__file__).resolve()), *sys.argv[1:]])  # prompts for the sudo password
+    try:
+        if a.command == "update":
+            results = kit.update(a.skip_env, a.skip_service, rollback=not a.no_rollback)
+            if os.geteuid() == 0 and not LINK.exists():
+                kit.install_link()
+            return 1 if any(r.level == "fail" for r in results) else 0
+        if a.command == "check":
+            results = kit.check()
+            kit.report(results)
+            return 1 if any(r.level == "fail" for r in results) else 0
+        if a.command == "status":
+            kit.status(fetch=not a.no_fetch)
+        elif a.command == "version":
+            print(kit.version())
+        elif a.command == "install":
+            kit.install_link()
+    except Failure as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
