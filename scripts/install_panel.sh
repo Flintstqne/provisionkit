@@ -110,7 +110,9 @@ systemctl enable provisionkit-panel.service
 systemctl restart provisionkit-panel.service
 
 for _ in $(seq 1 20); do
-  if curl -fsS "http://127.0.0.1:$PORT/healthz" > /dev/null 2>&1; then
+  # Any HTTP answer means the panel is up. With PANEL_ALLOWED_HOSTS set it answers 400 to a bare 127.0.0.1 Host header.
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz" || true)"
+  if [ -n "$code" ] && [ "$code" != 000 ]; then
     echo
     echo "The panel is running on 127.0.0.1:$PORT (loopback only)."
     echo "From your own computer: ssh -L $PORT:127.0.0.1:$PORT $RUN_USER@<controller address>"
