@@ -1,0 +1,107 @@
+---
+# Read-only acceptance checks. Changes nothing; fails on any mismatch.
+#   ansible-playbook playbooks/validate.yml --limit pk-worker
+- name: Validate baseline
+  hosts: workload_nodes
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+  tasks:
+    - name: Read effective sshd settings
+      ansible.builtin.command: sshd -T
+      register: validate_sshd
+      changed_when: false
+
+    - name: Read time sync state
+      ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+      register: validate_ntp
+      changed_when: false
+
+    - name: Read loaded audit rules
+      ansible.builtin.command: auditctl -l
+      register: validate_audit
+      changed_when: false
+
+    - name: Read unattended-upgrade origins
+      ansible.builtin.command: apt-config dump Unattended-Upgrade::Allowed-Origins
+      register: validate_origins
+      changed_when: false
+
+    - name: Read ufw status
+      ansible.builtin.command: ufw status verbose
+      register: validate_ufw
+      changed_when: false
+
+    - name: Read admin group membership
+      ansible.builtin.command: "id -nG {{ item.name }}"
+      loop: "{{ provisionkit_admin_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: validate_groups
+      changed_when: false
+
+    - name: Stat sensitive files and journal
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/sudoers.d/90-provisionkit
+        - "/home/{{ provisionkit_deploy_user }}/.ssh/authorized_keys"
+        - /var/log/journal
+        - /var/run/reboot-required
+      register: validate_stat
+
+    - name: Check timers are enabled
+      ansible.builtin.command: "systemctl is-enabled {{ item }}"
+      loop: [apt-daily.timer, apt-daily-upgrade.timer, auditd.service, ssh.service]
+      changed_when: false
+
+    - name: Assert baseline state
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == inventory_hostname
+          - "'passwordauthentication no' in validate_sshd.stdout_lines"
+          - "'kbdinteractiveauthentication no' in validate_sshd.stdout_lines"
+          - "'permitrootlogin no' in validate_sshd.stdout_lines"
+          - validate_ntp.stdout == 'yes'
+          - "'-security' in validate_origins.stdout and '-updates' not in validate_origins.stdout"
+          - validate_stat.results[0].stat.mode == '0440'
+          - validate_stat.results[0].stat.pw_name == 'root'
+          - validate_stat.results[1].stat.mode == '0600'
+          - validate_stat.results[1].stat.pw_name == provisionkit_deploy_user
+          - validate_stat.results[2].stat.isdir | default(false)
+        quiet: true
+
+    - name: Assert admin accounts have sudo
+      ansible.builtin.assert:
+        that: "'sudo' in item.stdout.split()"
+        quiet: true
+      loop: "{{ validate_groups.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Assert audit rules are loaded
+      ansible.builtin.assert:
+        that: "item in validate_audit.stdout"
+        quiet: true
+      loop: [provisionkit-identity, provisionkit-sudo, provisionkit-ssh, provisionkit-managed]
+
+    - name: Assert firewall is enforcing (once applied)
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in validate_ufw.stdout"
+          - "'deny (incoming)' in validate_ufw.stdout"
+        quiet: true
+      when: provisionkit_firewall_applied | default(false)
+
+    - name: Report pending reboot
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: REBOOT REQUIRED"
+      when: validate_stat.results[3].stat.exists
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: baseline checks passed; firewall {{ validate_fw_note }}"
+      vars:
+        validate_fw_note: "{{ 'verified' if provisionkit_firewall_applied | default(false) else 'NOT checked' }}"
