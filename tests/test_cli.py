@@ -337,3 +337,37 @@ def test_main_turns_failures_into_exit_code_1(world, capsys):
     (world.mine / "README.md").write_text("edited")
     assert cli.main(["update", "--skip-env", "--skip-service"], kit=world.kit) == 1
     assert "local changes" in capsys.readouterr().err
+
+
+def test_launcher_text_runs_the_script_directly_when_readable(tmp_path):
+    fake = tmp_path / "pk"
+    fake.write_text("#!/bin/sh\necho direct:$*\n")
+    fake.chmod(0o755)
+    launcher = tmp_path / "launcher"
+    launcher.write_text(cli.launcher_text(fake))
+    launcher.chmod(0o755)
+    r = subprocess.run([str(launcher), "check", "--x"], capture_output=True, text=True)
+    assert r.stdout.strip() == "direct:check --x"
+    text = cli.launcher_text(fake)
+    assert 'if [ -r "$SCRIPT" ]' in text and 'exec sudo "$SCRIPT"' in text  # the fallback for private home directories
+
+
+def test_install_writes_a_launcher_and_replaces_an_old_symlink(world, monkeypatch, tmp_path):
+    link = tmp_path / "bin" / "provisionkit"
+    monkeypatch.setattr(cli, "LINK", link)
+    monkeypatch.setattr(cli.os, "geteuid", lambda: 0)
+    link.parent.mkdir()
+    link.symlink_to(world.mine / "scripts" / "provisionkit")  # what version 1 installed
+    assert not world.kit.launcher_current()
+    world.kit.install_link()
+    assert link.is_file() and not link.is_symlink() and os.access(link, os.X_OK)
+    assert str(world.mine / "scripts" / "provisionkit") in link.read_text()
+    assert world.kit.launcher_current()
+    world.kit.install_link()  # idempotent
+    assert world.kit.launcher_current()
+
+
+def test_install_needs_root(world, monkeypatch):
+    monkeypatch.setattr(cli.os, "geteuid", lambda: 1000)
+    with pytest.raises(cli.Failure, match="sudo"):
+        world.kit.install_link()

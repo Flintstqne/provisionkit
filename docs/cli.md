@@ -17,10 +17,15 @@ The command arrives with the code, so pull it once by hand, then install it:
 
 ```
 sudo -u provisionkit -H git -C /home/provisionkit/provisionkit pull origin main
-sudo /home/provisionkit/provisionkit/scripts/provisionkit install      # links /usr/local/bin/provisionkit
+sudo /home/provisionkit/provisionkit/scripts/provisionkit install      # writes /usr/local/bin/provisionkit
 ```
 
-From then on, `provisionkit update` is all you need. `sudo scripts/install_panel.sh` also installs the link.
+From then on, `provisionkit update` is all you need. `sudo scripts/install_panel.sh` also installs it.
+
+`/usr/local/bin/provisionkit` is a small launcher script, not a symlink. The checkout usually lives in the deploy
+account's private home directory, which other accounts cannot enter, so a symlink would look like "command not
+found" to them. The launcher runs the real script directly when it can read it, and through `sudo` when it cannot.
+`provisionkit update` replaces an older symlink with the launcher on its own.
 
 ## What `update` does
 
