@@ -9,11 +9,6 @@ After=network-online.target
 User=@RUN_USER@
 WorkingDirectory=@REPO@
 Environment=PATH=@REPO@/.venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=ANSIBLE_HOME=@REPO@/panel/instance/ansible-home
-# ssh control sockets: short path (Unix sockets are limited to about 108 characters) and writable under ProtectHome.
-RuntimeDirectory=provisionkit-panel
-RuntimeDirectoryMode=0700
-Environment=ANSIBLE_SSH_CONTROL_PATH_DIR=/run/provisionkit-panel/cp
 EnvironmentFile=-/etc/provisionkit-panel.env
 ExecStart=@REPO@/.venv/bin/python -m panel run --host 127.0.0.1 --port @PORT@
 Restart=on-failure
@@ -21,7 +16,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local
+# The home directory is read-only, except where Ansible keeps its temporary files and ssh control sockets.
+ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local -@HOME_DIR@/.ansible
 
 [Install]
 WantedBy=multi-user.target

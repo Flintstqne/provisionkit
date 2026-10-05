@@ -27,8 +27,13 @@ done
 
 case "$PORT" in '' | *[!0-9]*) echo "Port must be a number." >&2; exit 2 ;; esac
 
+home_of() { getent passwd "$1" | cut -d: -f6 || true; }
+
 render_unit() {
+  local home_dir
+  home_dir="$(home_of "$RUN_USER")"
   sed -e "s|@RUN_USER@|$RUN_USER|g" -e "s|@REPO@|$REPO|g" -e "s|@PORT@|$PORT|g" \
+    -e "s|@HOME_DIR@|${home_dir:-/home/$RUN_USER}|g" \
     "$REPO/panel/deploy/provisionkit-panel.service"
 }
 
@@ -66,6 +71,8 @@ fi
 
 step "Data directory"
 as_user install -d -m 0700 "$REPO/panel/instance"
+# The service sees the home directory read-only, except ~/.ansible, which must exist to be made writable.
+as_user install -d -m 0700 "$(home_of "$RUN_USER")/.ansible"
 
 if [ "$SKIP_USER" = 0 ]; then
   step "Admin account"
