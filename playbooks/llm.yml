@@ -1,0 +1,15 @@
+---
+# Deploy local LLM inference to the llm_servers group (CPU only, loopback only).
+#   ansible-playbook playbooks/llm.yml --limit pk-worker
+# Needs pinned artifacts and an API key in inventories/local/group_vars/llm_servers.yml (see panel/README.md).
+- name: Deploy llama.cpp server
+  hosts: llm_servers
+  serial: 1
+  any_errors_fatal: true
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+  roles:
+    - {role: llm_server, tags: [llm_server]}

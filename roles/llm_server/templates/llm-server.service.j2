@@ -1,0 +1,53 @@
+# Managed by ProvisionKit (llm_server role). Do not edit by hand.
+[Unit]
+Description=llama.cpp server (local LLM inference)
+After=network.target
+
+[Service]
+User={{ llm_server_user }}
+Group={{ llm_server_user }}
+WorkingDirectory={{ llm_server_home }}
+EnvironmentFile={{ llm_server_config_dir }}/env
+Environment=LD_LIBRARY_PATH={{ llm_server_bin_dir }}
+ExecStart={{ llm_server_bin_dir }}/llama-server \
+    --host {{ llm_server_bind }} --port {{ llm_server_port }} \
+    --threads {{ llm_server_threads }} --ctx-size {{ llm_server_ctx }} --parallel {{ llm_server_parallel }} \
+    --model {{ llm_server_install_dir }}/models/{{ llm_server_model_filename }} --no-webui
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+
+# Keep the node usable while a request runs.
+Nice=10
+CPUWeight={{ llm_server_cpu_weight }}
+MemoryMax={{ llm_server_memory_max }}
+
+# Sandbox. The service reads one model file and answers on loopback; it needs nothing else.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+# No network except loopback: the model server cannot call out, even if it were compromised.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

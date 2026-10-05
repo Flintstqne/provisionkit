@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block crumbs %}Error{% endblock %}
+{% block content %}
+<div class="errpage"><div class="code">{{ code }}</div><h1>{{ title }}</h1><p class="muted">{{ message }}</p><p><a href="{{ url_for('main.index') }}">Back to dashboard</a></p></div>
+{% endblock %}

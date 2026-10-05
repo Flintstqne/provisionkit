@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in | ProvisionKit Control Center</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}"><link rel="icon" href="data:,"></head>
+<body>
+<div class="login-wrap"><main class="login">
+  <h1>ProvisionKit Control Center</h1>
+  <p class="muted">Sign in to manage your infrastructure.</p>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for cat, m in messages %}<div class="flash {{ cat }}" role="alert">{{ m }}</div>{% endfor %}{% endwith %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="u">Username</label><input id="u" name="username" type="text" autocomplete="username" required autofocus></div>
+    <div class="field"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary">Sign in</button>
+  </form>
+  {% if demo %}<p class="muted">Demo credentials: demo / demo-password-123</p>{% endif %}
+</main></div>
+</body></html>

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block crumbs %}Operations / Audit log{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Audit log</h1><p>Sign-ins, inventory changes and jobs. Latest 200 entries.</p></div></div>
+<section class="card"><div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Target</th><th>Detail</th><th>Source</th></tr></thead><tbody>
+{% for r in rows %}<tr><td class="mono">{{ r.ts|int|timestamp }}</td><td>{{ r.user or '-' }}</td><td class="mono">{{ r.action }}</td><td>{{ r.target }}</td><td>{{ r.detail }}</td><td class="mono muted">{{ r.ip }}</td></tr>
+{% else %}<tr><td colspan="6" class="empty">No entries.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

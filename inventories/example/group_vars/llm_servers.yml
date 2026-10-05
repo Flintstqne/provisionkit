@@ -1,0 +1,9 @@
+---
+# Copy to inventories/local/group_vars/llm_servers.yml. Values come from scripts/pin_llm_artifacts.py.
+# llm_server_binary_url: "https://example.org/llama.cpp-release-linux-x64.zip"
+# llm_server_binary_sha256: "<64 hex characters>"
+# llm_server_model_url: "https://example.org/model-Q4_K_M.gguf"
+# llm_server_model_sha256: "<64 hex characters>"
+# llm_server_model_filename: model-Q4_K_M.gguf
+# llm_server_api_key: "{{ vault_llm_server_api_key }}"   # 32+ characters, stored in Vault
+# llm_server_threads: 4

@@ -1,0 +1,197 @@
+---
+- name: Assert inputs are set and the bind address is supported
+  ansible.builtin.assert:
+    that:
+      - llm_server_binary_url | length > 0
+      - llm_server_binary_sha256 is match('^[0-9a-f]{64}$')
+      - llm_server_model_url | length > 0
+      - llm_server_model_sha256 is match('^[0-9a-f]{64}$')
+      - llm_server_model_filename is match('^[A-Za-z0-9._-]+\.gguf$')
+      - llm_server_api_key | length >= 32
+      - llm_server_bind in ['127.0.0.1', '::1']
+      - ansible_facts['memtotal_mb'] >= llm_server_min_ram_mb
+    fail_msg: >-
+      llm_server needs pinned artifacts (run scripts/pin_llm_artifacts.py), a 32+ character llm_server_api_key,
+      a loopback bind address and at least {{ llm_server_min_ram_mb }} MB of RAM.
+    quiet: true
+
+- name: Work out the release directory
+  ansible.builtin.set_fact:
+    llm_server_release_dir: "{{ llm_server_install_dir }}/{{ llm_server_binary_sha256[:12] }}"
+    llm_server_archive_name: "{{ llm_server_binary_url | urlsplit('path') | basename }}"
+
+- name: Work out the archive path
+  ansible.builtin.set_fact:
+    llm_server_archive_path: >-
+      {{ llm_server_install_dir }}/downloads/{{ llm_server_binary_sha256[:12] }}-{{ llm_server_archive_name }}
+
+- name: Install archive tools
+  ansible.builtin.apt:
+    name: [unzip, ca-certificates]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create service user
+  ansible.builtin.user:
+    name: "{{ llm_server_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ llm_server_home }}"
+    create_home: false
+
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ llm_server_install_dir }}", owner: root, mode: "0755"}
+    - {path: "{{ llm_server_install_dir }}/downloads", owner: root, mode: "0755"}
+    - {path: "{{ llm_server_install_dir }}/models", owner: root, mode: "0755"}
+    - {path: "{{ llm_server_config_dir }}", owner: root, mode: "0750"}
+    - {path: "{{ llm_server_home }}", owner: "{{ llm_server_user }}", mode: "0700"}
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Download and verify the llama.cpp archive
+  ansible.builtin.get_url:
+    url: "{{ llm_server_binary_url }}"
+    dest: "{{ llm_server_archive_path }}"
+    checksum: "sha256:{{ llm_server_binary_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+    timeout: 120
+
+- name: Create the extraction directory, named after the pinned checksum
+  ansible.builtin.file:
+    path: "{{ llm_server_release_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Extract the archive
+  ansible.builtin.unarchive:
+    src: "{{ llm_server_archive_path }}"
+    dest: "{{ llm_server_release_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ llm_server_release_dir }}/.extracted"
+
+- name: Mark the extraction as complete
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ llm_server_release_dir }}/.extracted"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Locate llama-server inside the archive
+  ansible.builtin.find:
+    paths: "{{ llm_server_release_dir }}"
+    patterns: llama-server
+    recurse: true
+    file_type: file
+  register: llm_server_found
+
+- name: Assert exactly one llama-server binary
+  ansible.builtin.assert:
+    that: llm_server_found.matched == 1
+    fail_msg: "Expected one llama-server in the archive, found {{ llm_server_found.matched }}."
+    quiet: true
+
+- name: Make the binary executable
+  ansible.builtin.file:
+    path: "{{ llm_server_found.files[0].path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Remember the binary directory
+  ansible.builtin.set_fact:
+    llm_server_bin_dir: "{{ llm_server_found.files[0].path | dirname }}"
+
+- name: Read the binary's help text
+  ansible.builtin.command: "{{ llm_server_bin_dir }}/llama-server --help"
+  environment:
+    LD_LIBRARY_PATH: "{{ llm_server_bin_dir }}"
+  register: llm_server_help
+  changed_when: false
+
+- name: Assert the pinned binary supports every flag the unit uses
+  ansible.builtin.assert:
+    that: item in llm_server_help.stdout + llm_server_help.stderr
+    fail_msg: "The pinned llama-server does not list {{ item }}. Pin another release or adjust the role."
+    quiet: true
+  loop: "{{ llm_server_required_flags }}"
+
+- name: Download and verify the model
+  ansible.builtin.get_url:
+    url: "{{ llm_server_model_url }}"
+    dest: "{{ llm_server_install_dir }}/models/{{ llm_server_model_filename }}"
+    checksum: "sha256:{{ llm_server_model_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+    timeout: 900
+  notify: Restart llm-server
+
+- name: Install the API key file (read by systemd as root only)
+  ansible.builtin.copy:
+    dest: "{{ llm_server_config_dir }}/env"
+    content: "LLAMA_API_KEY={{ llm_server_api_key }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart llm-server
+
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: llm-server.service.j2
+    dest: /etc/systemd/system/llm-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart llm-server
+
+- name: Flush handlers so the service runs the new configuration before it is verified
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the service
+  ansible.builtin.systemd:
+    name: llm-server.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for the model to load and the server to report healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ llm_server_port }}/health"
+    status_code: 200
+  register: llm_server_health
+  until: llm_server_health.status == 200
+  retries: 40
+  delay: 5
+  changed_when: false
+
+- name: Read listening sockets for the port
+  ansible.builtin.command: "ss -H -ltn 'sport = :{{ llm_server_port }}'"
+  register: llm_server_ss
+  changed_when: false
+
+- name: Assert the server listens on loopback only
+  ansible.builtin.assert:
+    that:
+      - llm_server_ss.stdout_lines | length > 0
+      - llm_server_ss.stdout_lines | map('split') | map(attribute=3) | difference(llm_server_loopback) | length == 0
+    fail_msg: "llama-server is listening on a non-loopback address: {{ llm_server_ss.stdout }}"
+    quiet: true
+  vars:
+    llm_server_loopback: ["127.0.0.1:{{ llm_server_port }}", "[::1]:{{ llm_server_port }}"]

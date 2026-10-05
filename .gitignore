@@ -5,3 +5,5 @@ inventories/local/
 .venv/
 __pycache__/
 .ansible/
+panel/instance/
+.pytest_cache/

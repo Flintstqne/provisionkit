@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Groups{% endblock %}
+{% block crumbs %}Infrastructure / Groups{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Groups</h1><p>Inventory groups decide which roles and playbooks apply.</p></div></div>
+<div class="grid cols-2">
+{% for name, members in groups.items() %}
+  <section class="card"><header><div><h2 class="mono">{{ name }}</h2><span class="muted">{{ group_info.get(name, '') }}</span></div><span class="tag">{{ members|length }} {{ 'device' if members|length == 1 else 'devices' }}</span></header>
+  {% if members %}<table><tbody>{% for m in members %}{% set d = devs.get(m) %}<tr><td><a href="{{ url_for('main.device', name=m) }}">{{ m }}</a></td><td class="mono muted">{{ d.address if d else '' }}</td><td class="num">{% if d %}{{ pill(d.status) }}{% endif %}</td></tr>{% endfor %}</tbody></table>
+  {% else %}<div class="empty">No members.</div>{% endif %}</section>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,116 @@
+---
+# Read-only inventory snapshot for the web panel. Changes nothing on the targets.
+# Writes one JSON file per host on the controller:
+#   ansible-playbook playbooks/collect.yml -e panel_out_dir=/tmp/snap --limit pk-worker
+- name: Collect host snapshot
+  hosts: all:!controllers
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+    panel_out_dir: "{{ playbook_dir }}/../panel/instance/snapshots"
+  tasks:
+    - name: Read effective sshd settings
+      ansible.builtin.command: sshd -T
+      register: collect_sshd
+      changed_when: false
+      failed_when: false
+
+    - name: Read time sync state
+      ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+      register: collect_ntp
+      changed_when: false
+      failed_when: false
+
+    - name: Read loaded audit rules
+      ansible.builtin.command: auditctl -l
+      register: collect_audit
+      changed_when: false
+      failed_when: false
+
+    - name: Read ufw status
+      ansible.builtin.command: ufw status verbose
+      register: collect_ufw
+      changed_when: false
+      failed_when: false
+
+    - name: Read unattended-upgrade origins
+      ansible.builtin.command: apt-config dump Unattended-Upgrade::Allowed-Origins
+      register: collect_origins
+      changed_when: false
+      failed_when: false
+
+    - name: Read unit state (no state argument, so read-only)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      loop: [auditd.service, ssh.service, ssh.socket]
+      register: collect_units
+      failed_when: false
+
+    - name: Stat reboot marker
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: collect_reboot
+
+    - name: Write snapshot on the controller
+      ansible.builtin.copy:
+        dest: "{{ panel_out_dir }}/{{ inventory_hostname }}.json"
+        mode: "0640"
+        content: "{{ collect_snapshot | to_nice_json }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      vars:
+        collect_sshd_lines: "{{ collect_sshd.stdout_lines | default([]) }}"
+        collect_unit_state: >-
+          {{ collect_units.results | selectattr('status', 'defined')
+             | items2dict(key_name='item', value_name='status') }}
+        collect_snapshot:
+          host: "{{ inventory_hostname }}"
+          collected_at: "{{ ansible_facts['date_time']['iso8601'] }}"
+          reboot_required: "{{ collect_reboot.stat.exists }}"
+          facts:
+            os: "{{ ansible_facts['distribution'] }}"
+            os_version: "{{ ansible_facts['distribution_version'] }}"
+            kernel: "{{ ansible_facts['kernel'] }}"
+            arch: "{{ ansible_facts['architecture'] }}"
+            fqdn: "{{ ansible_facts['fqdn'] }}"
+            hostname: "{{ ansible_facts['hostname'] }}"
+            python: "{{ ansible_facts['python_version'] }}"
+            cpu_model: "{{ ansible_facts['processor'][2] | default('unknown') }}"
+            cpu_count: "{{ ansible_facts['processor_vcpus'] | default(0) }}"
+            mem_total_mb: "{{ ansible_facts['memtotal_mb'] | default(0) }}"
+            mem_free_mb: "{{ ansible_facts['memfree_mb'] | default(0) }}"
+            swap_total_mb: "{{ ansible_facts['swaptotal_mb'] | default(0) }}"
+            uptime_s: "{{ ansible_facts['uptime_seconds'] | default(0) }}"
+            default_ipv4: "{{ ansible_facts['default_ipv4']['address'] | default('') }}"
+            interfaces: >-
+              {{ ansible_facts['interfaces'] | default([]) | reject('equalto', 'lo') | map('replace', '-', '_')
+                 | select('in', ansible_facts) | map('extract', ansible_facts) | list }}
+            mounts: >-
+              {{ ansible_facts['mounts'] | default([])
+                 | rejectattr('fstype', 'in', ['squashfs', 'tmpfs', 'overlay']) | list }}
+          checks:
+            - id: ssh_password_auth
+              title: SSH password authentication disabled
+              ok: "{{ 'passwordauthentication no' in collect_sshd_lines }}"
+            - id: ssh_root_login
+              title: SSH root login disabled
+              ok: "{{ 'permitrootlogin no' in collect_sshd_lines }}"
+            - id: ntp_sync
+              title: Time synchronised
+              ok: "{{ collect_ntp.stdout | default('') == 'yes' }}"
+            - id: auditd
+              title: auditd active with ProvisionKit rules
+              ok: "{{ (collect_unit_state['auditd.service']['ActiveState'] | default('')) == 'active'
+                      and 'provisionkit-identity' in collect_audit.stdout | default('') }}"
+            - id: security_updates
+              title: Security-only unattended upgrades
+              ok: "{{ '-security' in collect_origins.stdout | default('')
+                      and '-updates' not in collect_origins.stdout | default('') }}"
+            - id: firewall
+              title: Firewall default-deny incoming
+              ok: "{{ 'Status: active' in collect_ufw.stdout | default('')
+                      and 'deny (incoming)' in collect_ufw.stdout | default('') }}"
+              applicable: "{{ provisionkit_firewall_applied | default(false) }}"

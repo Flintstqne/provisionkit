@@ -29,6 +29,8 @@ def validate(inv_dir, example=False):
     k3s = hosts("k3s_servers") | hosts("k3s_agents")
     if hosts("controllers") & k3s:
         errs.append("controllers must not be in k3s groups")
+    if hosts("controllers") & hosts("llm_servers"):
+        errs.append("controllers must not be in llm_servers")
     if hosts("controllers") & hosts("workload_nodes"):
         errs.append("controllers must not be in workload_nodes")
     src = gv.get("provisionkit_management_sources") or []

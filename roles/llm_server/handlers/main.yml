@@ -1,0 +1,6 @@
+---
+- name: Restart llm-server
+  ansible.builtin.systemd:
+    name: llm-server.service
+    state: restarted
+    daemon_reload: true

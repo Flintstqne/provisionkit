@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, bar %}
+{% block title %}{{ d.name }}{% endblock %}
+{% block crumbs %}Infrastructure / <a href="{{ url_for('main.devices') }}">Devices</a> / {{ d.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{{ d.name }} {{ pill(d.status) }} {{ pill(d.compliance) }}</h1>
+    <p class="mono">{{ d.address or 'no address' }}{% if d.os %} &middot; {{ d.os }}{% endif %}</p></div>
+  <div class="actions">
+    {% if g.user['role'] != 'viewer' and d.status != 'Controller' %}
+    <form class="inline" method="post" action="{{ url_for('main.device_ping', name=d.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Test connection</button></form>
+    <form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="collect"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn primary">Collect data</button></form>
+    {% if 'workload_nodes' in d.groups %}<form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="validate"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn">Run validation</button></form>{% endif %}
+    {% endif %}
+    {% if g.user['role'] == 'admin' and inv.writable %}<form class="inline" method="post" action="{{ url_for('main.device_remove', name=d.name) }}" data-confirm="Remove {{ d.name }} from the inventory? The server itself is not changed."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger">Remove</button></form>{% endif %}
+  </div>
+</div>
+{% if host_status and not host_status.reachable %}<div class="flash error">Last attempt to reach this device failed {{ ago(host_status.checked) }}: {{ host_status.detail or 'unreachable' }}</div>{% endif %}
+{% if d.status == 'Controller' %}<div class="flash ok">This is the controller running the panel. It is not scanned or managed by the baseline.</div>{% elif not d.snapshot %}<div class="flash error">No data collected yet. Run <b>Collect data</b> once the device is bootstrapped.</div>{% endif %}
+
+<nav class="tabs" aria-label="Device sections">
+  {% for t in tabs %}<a href="{{ url_for('main.device', name=d.name, tab=t) }}" {% if t == tab %}aria-current="page"{% endif %}>{{ t|capitalize }}</a>{% endfor %}
+</nav>
+
+{% if tab == 'overview' %}
+<div class="grid cols-2">
+  <section class="card"><header><h2>Summary</h2></header><dl class="props">
+    <dt>Status</dt><dd>{{ pill(d.status) }} <span class="muted">collected {{ ago(d.collected) }}</span></dd>
+    <dt>Compliance</dt><dd>{{ pill(d.compliance) }}{% if d.checks_total %} {{ d.checks_passed }} of {{ d.checks_total }} checks pass{% endif %}</dd>
+    <dt>Groups</dt><dd>{% for g_ in d.groups %}<span class="tag">{{ g_ }}</span>{% endfor %}</dd>
+    <dt>Operating system</dt><dd>{{ d.os or '-' }}</dd>
+    <dt>Kernel</dt><dd class="mono">{{ d.kernel or '-' }}</dd>
+    <dt>Uptime</dt><dd>{{ uptime(d.uptime_s) if d.snapshot else '-' }}</dd>
+    <dt>Reboot required</dt><dd>{{ 'Yes' if d.reboot else 'No' }}</dd>
+  </dl></section>
+  <section class="card"><header><h2>Resources</h2></header><div class="body bars">
+    <span>Memory</span>{% if d.mem_used_pct is not none %}{{ bar(d.mem_used_pct, 'bad' if d.mem_used_pct > 90 else 'warn' if d.mem_used_pct > 75 else '') }}<span class="num">{{ d.mem_used_pct }}%</span>{% else %}<span class="muted">-</span><span></span>{% endif %}
+    {% for s in d.storage %}<span class="mono">{{ s.mount }}</span>{{ bar(s.used_pct, 'bad' if s.used_pct > 90 else 'warn' if s.used_pct > 75 else '') }}<span class="num">{{ s.used_pct }}%</span>{% endfor %}
+  </div></section>
+</div>
+{% if d.checks %}<section class="card"><header><h2>Failed checks</h2></header>
+  {% set failed = d.checks|selectattr('state', 'equalto', 'fail')|list %}
+  {% if failed %}<table><tbody>{% for c in failed %}<tr><td>{{ c.title }}</td><td class="num">{{ pill('fail') }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">All applicable checks pass.</div>{% endif %}
+</section>{% endif %}
+
+{% elif tab == 'hardware' %}
+<section class="card"><dl class="props">
+  <dt>CPU</dt><dd>{{ d.cpu_model or '-' }}</dd><dt>vCPUs</dt><dd>{{ d.cpus or '-' }}</dd>
+  <dt>Memory</dt><dd>{{ (d.mem_mb / 1024)|round(1) }} GB</dd><dt>Swap</dt><dd>{{ ((d.facts.get('swap_total_mb') or 0)|int / 1024)|round(1) }} GB</dd>
+  <dt>Architecture</dt><dd>{{ d.arch or '-' }}</dd><dt>Operating system</dt><dd>{{ d.os or '-' }}</dd>
+  <dt>Kernel</dt><dd class="mono">{{ d.kernel or '-' }}</dd><dt>FQDN</dt><dd class="mono">{{ d.facts.get('fqdn') or '-' }}</dd>
+  <dt>Python</dt><dd class="mono">{{ d.facts.get('python') or '-' }}</dd><dt>Uptime</dt><dd>{{ uptime(d.uptime_s) if d.snapshot else '-' }}</dd>
+</dl></section>
+
+{% elif tab == 'network' %}
+<section class="card">{% if d.interfaces %}<div class="table-wrap"><table><thead><tr><th>Interface</th><th>IPv4</th><th>Netmask</th><th>MAC</th><th>MTU</th><th>Link</th></tr></thead><tbody>
+  {% for i in d.interfaces %}<tr><td class="mono">{{ i.name }}</td><td class="mono">{{ i.ip or '-' }}</td><td class="mono">{{ i.netmask or '-' }}</td><td class="mono">{{ i.mac or '-' }}</td><td>{{ i.mtu or '-' }}</td><td>{{ pill('Online' if i.up else 'Offline') }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No network data collected.</div>{% endif %}</section>
+
+{% elif tab == 'storage' %}
+<section class="card">{% if d.storage %}<div class="table-wrap"><table><thead><tr><th>Mount</th><th>Device</th><th>Type</th><th class="num">Used</th><th class="num">Size</th><th>Usage</th></tr></thead><tbody>
+  {% for s in d.storage %}<tr><td class="mono">{{ s.mount }}</td><td class="mono">{{ s.device }}</td><td>{{ s.fstype }}</td><td class="num">{{ s.used_gb }} GB</td><td class="num">{{ s.total_gb }} GB</td><td class="membar">{{ bar(s.used_pct, 'bad' if s.used_pct > 90 else 'warn' if s.used_pct > 75 else '') }} {{ s.used_pct }}%</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No storage data collected.</div>{% endif %}</section>
+
+{% elif tab == 'compliance' %}
+<section class="card"><header><h2>Posture checks</h2><span class="muted">Collected {{ ago(d.collected) }}</span></header>
+  {% if d.checks %}<table><tbody>{% for c in d.checks %}<tr><td>{{ c.title }}</td><td class="num">{{ pill(c.state) }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">No data collected.</div>{% endif %}</section>
+<section class="card gap-top"><header><h2>Last acceptance validation</h2></header>
+  {% if last_validate %}<dl class="props"><dt>Result</dt><dd>{{ pill('fail' if last_validate.failed or last_validate.unreachable else 'pass') }}</dd>
+    <dt>Finished</dt><dd>{{ ago(last_validate.finished) }} (<a href="{{ url_for('main.job', job_id=last_validate.job_id) }}">job #{{ last_validate.job_id }}</a>)</dd>
+    {% if last_validate.message %}<dt>Detail</dt><dd class="mono">{{ last_validate.message }}</dd>{% endif %}</dl>
+  {% else %}<div class="empty">Validation has not been run from the panel.</div>{% endif %}</section>
+
+{% elif tab == 'configuration' %}
+<div class="grid cols-2">
+  <section class="card"><header><h2>Inventory entry</h2></header><dl class="props">
+    <dt>Name</dt><dd class="mono">{{ d.name }}</dd><dt>ansible_host</dt><dd class="mono">{{ d.address or '-' }}</dd>
+    <dt>Groups</dt><dd>{% for g_ in d.groups %}<span class="tag">{{ g_ }}</span>{% endfor %}</dd>
+    {% for k, v in d.vars.items() %}<dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>{% endfor %}</dl></section>
+  <section class="card"><header><h2>Inherited variables (group_vars/all)</h2></header><dl class="props">
+    {% for k, v in inv.group_vars().items() %}<dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>{% endfor %}</dl></section>
+</div>
+
+{% elif tab == 'activity' %}
+<div class="grid cols-2">
+  <section class="card"><header><h2>Jobs</h2></header>{% if jobs %}<table><tbody>
+    {% for j in jobs %}<tr><td><a href="{{ url_for('main.job', job_id=j.id) }}">#{{ j.id }} {{ j.kind }}</a> <span class="muted">on {{ j.target }}</span></td><td>{{ pill(j.status) }}</td><td class="muted num">{{ ago(j.created) }}</td></tr>{% endfor %}
+  </tbody></table>{% else %}<div class="empty">No jobs yet.</div>{% endif %}</section>
+  <section class="card"><header><h2>Changes</h2></header>{% if activity %}<table><tbody>
+    {% for a in activity %}<tr><td><span class="mono">{{ a.action }}</span> <span class="muted">by {{ a.user }}</span></td><td class="muted num">{{ ago(a.ts) }}</td></tr>{% endfor %}
+  </tbody></table>{% else %}<div class="empty">No recorded changes.</div>{% endif %}</section>
+</div>
+{% endif %}
+{% endblock %}

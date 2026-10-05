@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, bar %}
+{% block title %}Dashboard{% endblock %}
+{% block crumbs %}Overview / Dashboard{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Dashboard</h1><p>Fleet status from the last data collection.</p></div>
+  <div class="actions">
+    {% if g.user['role'] != 'viewer' %}<form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="collect"><input type="hidden" name="target" value="all"><button class="btn">Refresh all data</button></form>{% endif %}
+    {% if g.user['role'] == 'admin' %}<a class="btn primary" href="{{ url_for('main.device_new') }}">Add device</a>{% endif %}
+  </div>
+</div>
+
+<div class="grid kpis">
+  <div class="card kpi"><div class="label">Devices</div><div class="value">{{ s.total }}</div><div class="sub">{{ s.status['Online'] }} online, {{ s.status['Pending'] }} pending</div></div>
+  <div class="card kpi"><div class="label">Compliance</div><div class="value">{{ s.compliance_pct ~ '%' if s.compliance_pct is not none else 'n/a' }}</div><div class="sub">{{ s.compliant }} of {{ s.scanned }} scanned devices</div></div>
+  <div class="card kpi"><div class="label">Open findings</div><div class="value">{{ s.findings }}</div><div class="sub">failed posture checks</div></div>
+  <div class="card kpi"><div class="label">Reboot required</div><div class="value">{{ s.reboot }}</div><div class="sub">devices with pending kernel updates</div></div>
+  <div class="card kpi"><div class="label">Unreachable</div><div class="value">{{ s.status['Offline'] }}</div><div class="sub">{{ s.status['Stale'] }} with stale data</div></div>
+</div>
+
+<div class="grid cols-2">
+  <section class="card"><header><h2>Compliance</h2><a href="{{ url_for('main.compliance') }}">Details</a></header>
+    <div class="body">
+    {% if s.compliance_pct is none %}<p class="muted">No data yet. Collect facts to score devices.</p>{% else %}
+      <div class="donut">
+        <svg viewBox="0 0 120 120" role="img" aria-label="{{ s.compliance_pct }} percent compliant">
+          <circle class="ring t" cx="60" cy="60" r="50"/>
+          <circle class="ring v" cx="60" cy="60" r="50" pathLength="100" stroke-dasharray="{{ s.compliance_pct }} {{ 100 - s.compliance_pct }}" transform="rotate(-90 60 60)"/>
+          <text x="60" y="68">{{ s.compliance_pct }}%</text>
+        </svg>
+        <ul class="legend"><li>{{ s.compliant }} compliant</li><li>{{ s.scanned - s.compliant }} non-compliant</li><li class="muted">{{ s.total - s.scanned }} not scanned</li></ul>
+      </div>
+    {% endif %}</div></section>
+  <section class="card"><header><h2>Operating systems</h2></header>
+    <div class="body bars">
+      {% for name, n in s.os %}<span>{{ name }}</span>{{ bar((100 * n / s.total)|round|int) }}<span class="num">{{ n }}</span>{% else %}<span class="muted">No devices.</span>{% endfor %}
+    </div></section>
+</div>
+
+<div class="grid cols-3">
+  <section class="card"><header><h2>Needs attention</h2><a href="{{ url_for('main.devices') }}">All devices</a></header>
+    {% if attention %}<div class="table-wrap"><table><thead><tr><th>Device</th><th>Status</th><th>Issue</th></tr></thead><tbody>
+    {% for d in attention %}<tr><td><a href="{{ url_for('main.device', name=d.name) }}">{{ d.name }}</a></td><td>{{ pill(d.status) }}</td>
+      <td>{% if d.status == 'Offline' %}Unreachable at last attempt{% elif d.status == 'Stale' %}Data last collected {{ ago(d.collected) }}{% endif %}
+        {% for c in d.checks if c.state == 'fail' %}<span class="tag">{{ c.id }}</span>{% endfor %}
+        {% if d.reboot %}<span class="tag">reboot required</span>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<div class="empty">Nothing needs attention.</div>{% endif %}</section>
+  <section class="card"><header><h2>Recent activity</h2>{% if g.user['role'] != 'viewer' %}<a href="{{ url_for('main.audit_log') }}">Audit log</a>{% endif %}</header>
+    <div class="table-wrap"><table><tbody>
+    {% for r in running %}<tr><td colspan="2"><a href="{{ url_for('main.job', job_id=r.id) }}">Job #{{ r.id }} {{ r.kind }}</a> {{ pill(r.status) }}</td></tr>{% endfor %}
+    {% for r in recent %}<tr><td><span class="mono">{{ r.action }}</span> {{ r.target }}<br><span class="muted">{{ r.user }}</span></td><td class="muted num">{{ ago(r.ts) }}</td></tr>
+    {% else %}<tr><td class="empty">No activity yet.</td></tr>{% endfor %}
+    </tbody></table></div></section>
+</div>
+{% endblock %}

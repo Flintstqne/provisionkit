@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block crumbs %}Operations / Settings{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Settings</h1><p>Users, inventory health and runtime configuration.</p></div></div>
+<div class="grid cols-2">
+<section class="card"><header><h2>Users</h2></header>
+  <table><thead><tr><th>User</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+  {% for u in users %}<tr><td>{{ u.username }}{% if not u.active %} <span class="tag">disabled</span>{% endif %}</td><td>{{ u.role }}</td><td class="muted">{{ ago(u.last_login) }}</td>
+    <td class="num">{% if u.id != g.user['id'] %}<form class="inline" method="post" action="{{ url_for('main.user_toggle', uid=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm">{{ 'Disable' if u.active else 'Enable' }}</button></form>{% endif %}</td></tr>{% endfor %}
+  </tbody></table>
+  <div class="body"><form method="post" action="{{ url_for('main.user_create') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="nu">New user</label><input id="nu" name="username" type="text" required maxlength="40" autocomplete="off"></div>
+    <div class="field"><label for="np">Password</label><input id="np" name="password" type="password" required minlength="12" autocomplete="new-password"><div class="hint">At least 12 characters.</div></div>
+    <div class="field"><label for="nr">Role</label><select id="nr" name="role">{% for r in roles %}<option {{ 'selected' if r == 'viewer' }}>{{ r }}</option>{% endfor %}</select>
+      <div class="hint">viewer: read only. operator: run jobs and test connections. admin: edit inventory and users.</div></div>
+    <button class="btn primary">Create user</button></form></div></section>
+<div>
+<section class="card"><header><h2>Inventory</h2></header><dl class="props">
+  <dt>Path</dt><dd class="mono">{{ inv.dir }}</dd><dt>Mode</dt><dd>{{ 'Read-only example' if inv.is_example else 'Read / write' if inv.writable else 'Read-only' }}</dd>
+  <dt>Validation</dt><dd>{% if problems %}<ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>{% else %}No problems found.{% endif %}</dd></dl></section>
+<section class="card gap-top"><header><h2>Runtime</h2></header><dl class="props">
+  <dt>Mode</dt><dd>{{ 'Demo (synthetic data)' if cfg.DEMO else 'Live' }}</dd><dt>Stale after</dt><dd>{{ (cfg.STALE_AFTER_S / 3600)|round(1) }} h</dd>
+  <dt>Secure cookies</dt><dd>{{ 'Yes' if cfg.SESSION_COOKIE_SECURE else 'No (set PANEL_SECURE_COOKIE=1 behind HTTPS)' }}</dd></dl></section>
+</div></div>
+{% endblock %}

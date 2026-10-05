@@ -1,0 +1,59 @@
+---
+# Measure generation speed on the node and save the result on the controller. Sends prompts to the local server only.
+#   ansible-playbook playbooks/llm_bench.yml --limit pk-worker -e llm_bench_out_dir=/tmp/bench
+- name: Benchmark llama.cpp server
+  hosts: llm_servers
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+    llm_bench_runs: 3
+    llm_bench_tokens: 128
+    llm_bench_prompt: >-
+      Explain in three sentences why disabling SSH password authentication reduces the risk of brute-force attacks.
+    llm_bench_out_dir: "{{ playbook_dir }}/../panel/instance/bench"
+  tasks:
+    - name: Send the same prompt several times
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ llm_server_port }}/completion"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ llm_server_api_key }}"
+        body_format: json
+        body:
+          prompt: "{{ llm_bench_prompt }}"
+          n_predict: "{{ llm_bench_tokens }}"
+          temperature: 0
+          cache_prompt: false
+        timeout: 600
+      loop: "{{ range(llm_bench_runs) | list }}"
+      loop_control:
+        label: "run {{ item + 1 }}"
+      register: llm_bench_runs_result
+      no_log: true
+      changed_when: false
+
+    - name: Write the result on the controller
+      ansible.builtin.copy:
+        dest: "{{ llm_bench_out_dir }}/{{ inventory_hostname }}-{{ llm_server_model_filename }}.json"
+        mode: "0640"
+        content: "{{ llm_bench_result | to_nice_json }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      vars:
+        llm_bench_speeds: >-
+          {{ llm_bench_runs_result.results | map(attribute='json.timings.predicted_per_second') | list | sort }}
+        llm_bench_result:
+          host: "{{ inventory_hostname }}"
+          model: "{{ llm_server_model_filename }}"
+          cpu: "{{ ansible_facts['processor'][2] | default('unknown') }}"
+          threads: "{{ llm_server_threads }}"
+          ctx: "{{ llm_server_ctx }}"
+          tokens: "{{ llm_bench_tokens }}"
+          runs: "{{ llm_bench_runs }}"
+          generation_tokens_per_second_median: "{{ llm_bench_speeds[llm_bench_speeds | length // 2] }}"
+          generation_tokens_per_second_all: "{{ llm_bench_speeds }}"
+          prompt_tokens_per_second_first_run: "{{ llm_bench_runs_result.results[0].json.timings.prompt_per_second }}"
+          measured_at: "{{ ansible_facts['date_time']['iso8601'] }}"
