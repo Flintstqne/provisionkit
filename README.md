@@ -24,6 +24,6 @@ make check   # syntax checks, yamllint, inventory validator self-test
 
 `roles/llm_server` runs a local llama.cpp model server on a node (loopback only, pinned and checksum-verified, sandboxed). Written and partly tested, **not yet run on hardware**. See [docs/llm-server.md](docs/llm-server.md).
 
-`scripts/provisionkit` is a small command for the controller: `provisionkit update` pulls the latest main, fixes the environment, restarts the panel and runs health checks, rolling back if the panel fails. See [docs/cli.md](docs/cli.md).
+`scripts/provisionkit` is a small command for the controller: `provisionkit update` pulls the latest main, fixes the environment, restarts the panel and runs health checks, rolling back if the panel fails. `provisionkit baseline NODE` applies the hardening baseline to one node with a dry run, a typed confirmation and a validation. See [docs/cli.md](docs/cli.md) and [docs/baseline.md](docs/baseline.md).
 
 Real addresses/keys/Vault go in `inventories/local/` (git-ignored).

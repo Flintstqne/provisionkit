@@ -67,7 +67,7 @@
 {% if d.snapshot and d.drift %}<section class="card gap-top"><header><h2>Baseline manifest</h2>{{ pill(d.drift.label) }}</header>
   <div class="body"><p>{{ d.drift.detail }}</p>
   {% if d.drift.files %}<p class="muted">Changed since this node was configured:</p><p>{% for f in d.drift.files %}<span class="tag mono">{{ f }}</span>{% endfor %}</p>
-    <p class="muted">Run the baseline on this node to bring it up to date.</p>{% endif %}</div>
+    <p class="muted">Bring the node up to date with <span class="mono">provisionkit baseline {{ d.name }}</span> on the controller.</p>{% endif %}</div>
   {% if d.manifest and d.manifest.get('configuration_commit') %}<dl class="props">
     <dt>Configuration commit</dt><dd class="mono" title="{{ d.manifest.configuration_commit }}">{{ d.manifest.configuration_commit[:12] }}</dd>
     <dt>Release</dt><dd>{{ d.manifest.get('baseline_release', '-') }}</dd>
