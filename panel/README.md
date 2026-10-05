@@ -9,7 +9,7 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 | ![Dashboard](../docs/panel/dashboard.png) | ![Devices](../docs/panel/devices.png) |
 | ![Device](../docs/panel/device.png) | ![Compliance](../docs/panel/compliance.png) |
 | ![Guided setup](../docs/panel/setup.png) | ![Settings](../docs/panel/settings.png) |
-| ![Config drift](../docs/panel/drift.png) | |
+| ![Config drift](../docs/panel/drift.png) | ![Update dialog](../docs/panel/update.png) |
 
 ## What it does
 
@@ -31,6 +31,8 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
   changed since, so panel and CLI updates do not flag every node. Other states: Current, No manifest, Uncommitted
   (configured from a dirty checkout), Unknown commit, Unreadable. The inventory is git-ignored, so changes to
   `group_vars` are not detected.
+- **Update button** (admins, bottom-right corner): runs `provisionkit update` through a root-run systemd unit and shows
+  live progress. A dot means GitHub has a newer `main`. See [../docs/panel-update.md](../docs/panel-update.md).
 - **Compliance**: matrix of posture checks per device (SSH password login, root login, time sync, auditd rules,
   security-only updates, firewall).
 - **Jobs**: run `collect`, `validate` or `preflight` against all hosts, a group or one host. Live output, per-host

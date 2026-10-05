@@ -17,8 +17,9 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 # The home directory is read-only, except where Ansible keeps its temporary files and ssh control sockets, and the
-# known_hosts file, which the panel appends to when an admin trusts a new server's host key.
-ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local -@HOME_DIR@/.ansible -@HOME_DIR@/.ssh/known_hosts
+# known_hosts file, which the panel appends to when an admin trusts a new server's host key, and the request
+# directory where the Update button leaves a file for the root-run updater.
+ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local -@HOME_DIR@/.ansible -@HOME_DIR@/.ssh/known_hosts /var/lib/provisionkit-requests
 
 [Install]
 WantedBy=multi-user.target

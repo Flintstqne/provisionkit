@@ -28,6 +28,8 @@ make check   # syntax checks, yamllint, inventory validator self-test
 
 `scripts/provisionkit` is a small command for the controller: `provisionkit update` pulls the latest main, fixes the environment, restarts the panel and runs health checks, rolling back if the panel fails. `provisionkit baseline NODE` applies the hardening baseline to one node with a dry run, a typed confirmation and a validation. See [docs/cli.md](docs/cli.md) and [docs/baseline.md](docs/baseline.md).
 
+The panel has an Update button (admins) that runs `provisionkit update` through a root-run systemd unit. See [docs/panel-update.md](docs/panel-update.md).
+
 Nightly reboots at 00:00 local time are available but off until you opt in. See [docs/nightly-reboot.md](docs/nightly-reboot.md).
 
 Real addresses/keys/Vault go in `inventories/local/` (git-ignored).

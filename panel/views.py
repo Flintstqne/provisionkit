@@ -6,7 +6,7 @@ import time
 from flask import (Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session,
                    url_for)
 
-from . import auth, drift, fleet, jobs, scheduler, setup
+from . import auth, drift, fleet, jobs, scheduler, setup, updater
 from .db import audit, get_db
 from .inventory import NO_ADD, InventoryError
 
@@ -362,6 +362,37 @@ def user_toggle(uid):
         db.commit()
         _log("user.disable" if u["active"] else "user.enable", u["username"])
     return redirect(url_for("main.settings"))
+
+
+# ---- the Update button -----------------------------------------------------------------------------------------
+
+@bp.get("/update")
+@auth.require("admin")
+def update_info():
+    cfg = current_app.config
+    st = updater.status(cfg)
+    ok = updater.configured(cfg)
+    busy = jobs._lock.locked()
+    reason = ("" if ok else "Updating from the panel is not set up. Run: sudo scripts/install_panel.sh") or \
+        ("A job is running. Wait for it to finish." if busy else "") or \
+        ("An update is in progress." if st["state"] in ("running", "requested") else "")
+    return jsonify(version=updater.version(cfg["ROOT"]), available=updater.available(cfg), status=st,
+                   log=updater.log_tail(cfg), can_start=not reason, reason=reason, now=time.time())
+
+
+@bp.post("/update/start")
+@auth.require("admin")
+def update_start():
+    """Ask the root-run updater to run `provisionkit update`. The panel itself changes nothing."""
+    cfg = current_app.config
+    if jobs._lock.locked():
+        return jsonify(ok=False, error="A job is running. Wait for it to finish, because the update restarts the panel."), 409
+    try:
+        updater.request(cfg)
+    except updater.UpdateError as e:
+        return jsonify(ok=False, error=str(e)), 409
+    _log("update.request", "provisionkit", "from " + (updater.version(cfg["ROOT"]).get("short") or "unknown"))
+    return jsonify(ok=True, requested_at=time.time()), 202
 
 
 # ---- JSON API and health ---------------------------------------------------------------------

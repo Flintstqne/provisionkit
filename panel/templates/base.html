@@ -7,6 +7,7 @@
 <title>{% block title %}{{ title|default('Console') }}{% endblock %} | ProvisionKit Control Center</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 <link rel="icon" href="data:,">
+{% if g.user %}<meta name="csrf-token" content="{{ csrf_token() }}">{% endif %}
 </head>
 <body>
 <div class="shell">
@@ -44,6 +45,24 @@
     </main>
   </div>
 </div>
+{% if g.user and g.user['role'] == 'admin' %}
+<button type="button" class="update-fab" id="update-open" data-url="{{ url_for('main.update_info') }}" aria-haspopup="dialog">Update<span class="update-dot" id="update-dot" hidden></span></button>
+<dialog id="update-dialog" class="update-dialog" aria-labelledby="update-title" data-start-url="{{ url_for('main.update_start') }}">
+  <h2 id="update-title">Update ProvisionKit</h2>
+  <p class="muted">Pulls the latest main from GitHub and checks that everything works, the same as <span class="mono">provisionkit update</span> on the controller. The panel restarts if it needs to, and the code rolls back if it does not come back healthy.</p>
+  <dl class="props">
+    <dt>Installed</dt><dd id="update-version" class="mono">-</dd>
+    <dt>GitHub</dt><dd id="update-available">-</dd>
+    <dt>Status</dt><dd id="update-status" role="status" aria-live="polite">-</dd>
+  </dl>
+  <pre class="log" id="update-log" tabindex="0" hidden></pre>
+  <p class="muted" id="update-reason" role="status"></p>
+  <div class="actions">
+    <button type="button" class="btn primary" id="update-go">Update now</button>
+    <button type="button" class="btn" id="update-close">Close</button>
+  </div>
+</dialog>
+{% endif %}
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </body>
 </html>

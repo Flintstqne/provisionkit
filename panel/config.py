@@ -21,6 +21,9 @@ class Config:
     DB_PATH = INSTANCE / "panel.db"
     SNAPSHOT_DIR = INSTANCE / "snapshots"
     JOB_LOG_DIR = INSTANCE / "jobs"
+    # The Update button: the panel leaves a file here and a root-run systemd unit does the work. See docs/panel-update.md.
+    UPDATE_REQUEST_DIR = Path(os.environ.get("PANEL_UPDATE_REQUEST_DIR", "/var/lib/provisionkit-requests"))
+    UPDATE_STATUS_DIR = Path(os.environ.get("PANEL_UPDATE_STATUS_DIR", "/var/lib/provisionkit-update"))
     STALE_AFTER_S = int(os.environ.get("PANEL_STALE_AFTER", 6 * 3600))  # snapshot older than this is "stale"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
