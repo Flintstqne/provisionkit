@@ -162,7 +162,7 @@ def test_pages_show_drift_for_each_state(app, repo):
     dash = c.get("/").get_data(as_text=True)
     assert "Config drift" in dash and "config behind" in dash
     card = c.get("/devices/pk-worker").get_data(as_text=True)
-    assert "Baseline manifest" in card and "roles/b.yml" in card and "Run the baseline on this node" in card
+    assert "Baseline manifest" in card and "roles/b.yml" in card and "provisionkit baseline pk-worker" in card
     assert c.get("/api/v1/summary").get_json()["drift"] == {"current": 1, "behind": 1}
 
 

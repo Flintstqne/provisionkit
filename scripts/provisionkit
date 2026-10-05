@@ -3,6 +3,7 @@
 
   provisionkit update     pull the latest main from GitHub, then make sure everything works
   provisionkit check      run the health checks without changing anything
+  provisionkit baseline H apply the hardening baseline to one node: dry run, confirmation, apply, then validate
   provisionkit status     show the version, whether an update is waiting, and the panel state
   provisionkit version    print the installed version
   provisionkit install    put this command on your PATH (/usr/local/bin/provisionkit), needs sudo
@@ -10,6 +11,8 @@
 Standard library only, so it runs before the virtualenv exists.
 """
 import argparse
+import ipaddress
+import json
 import os
 import pwd
 import re
@@ -27,6 +30,27 @@ SERVICE = "provisionkit-panel.service"
 ENV_MODULES = "import flask, ruamel.yaml, waitress, jwt, ansible"
 RESTART_IF_CHANGED = ("panel/", "scripts/install_panel.sh", "scripts/provisionkit")
 DEFAULT_KEY = "/home/provisionkit/.ssh/provisionkit_ed25519"
+TAG_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
+# Runs in the virtualenv (PyYAML comes with Ansible). Prints what the baseline command needs to know about one node.
+INVENTORY_FACTS = r"""
+import json, sys, yaml
+from pathlib import Path
+inv = Path("inventories/local")
+children = yaml.safe_load((inv / "hosts.yml").read_text())["all"]["children"]
+gv_file = inv / "group_vars" / "all.yml"
+gv = (yaml.safe_load(gv_file.read_text()) if gv_file.exists() else None) or {}
+host = sys.argv[1]
+groups, address = [], None
+for name, body in children.items():
+    entry = ((body or {}).get("hosts") or {})
+    if host in entry:
+        groups.append(name)
+        address = address or (entry[host] or {}).get("ansible_host")
+controllers = [(v or {}).get("ansible_host") for v in ((children.get("controllers") or {}).get("hosts") or {}).values()]
+print(json.dumps({"groups": groups, "address": address, "controllers": [c for c in controllers if c],
+                  "sources": gv.get("provisionkit_management_sources") or [],
+                  "firewall_applied": bool(gv.get("provisionkit_firewall_applied", False))}))
+"""
 
 
 class Failure(Exception):
@@ -262,6 +286,107 @@ class Kit:
                  f"{f'{bad} problem(s) need attention.' if bad else ''}"
                  f"{f' {warn} warning(s).' if warn else ''}".strip())
 
+    # ---- baseline ---------------------------------------------------------------------------------------------------
+    def run_live(self, cmd):
+        """Run with the terminal attached, so Ansible's prompts (vault password, the firewall's login confirmation) work."""
+        cmd = [str(c) for c in cmd]
+        if os.geteuid() == 0 and self.owner != "root":
+            cmd = ["sudo", "-u", self.owner, "-H", *cmd]
+        try:
+            return subprocess.run(cmd, cwd=self.repo).returncode
+        except FileNotFoundError:
+            raise Failure(f"{cmd[0]} is not installed.") from None
+
+    def inventory_facts(self, host):
+        r = self.sh([self.py, "-c", INVENTORY_FACTS, host], check=False)
+        if r.returncode:
+            raise Failure("Could not read inventories/local: " + (r.stderr.strip().splitlines() or ["unknown error"])[-1])
+        return json.loads(r.stdout)
+
+    def playbook(self, name, host, tags, vault, check=False):
+        cmd = [self.repo / ".venv/bin/ansible-playbook", f"playbooks/{name}.yml", "-i", "inventories/local/hosts.yml",
+               "--limit", host]
+        if check:
+            cmd += ["--check", "--diff"]
+        if tags:
+            cmd += ["--tags", tags]
+        if vault:
+            cmd += ["--ask-vault-pass"]
+        return cmd
+
+    def baseline(self, host, tags=None, check_only=False, yes=False, ask_vault=False, allow_dirty=False, ask=input):
+        """Dry run, confirm, apply, validate. Changes only the one named node."""
+        if tags and not TAG_RE.match(tags):
+            raise Failure("Tags must be lowercase names separated by commas, for example: firewall,audit")
+        if not (self.repo / "inventories" / "local").exists():
+            raise Failure("inventories/local does not exist. Create it first (see the README).")
+        problems = self.check_inventory()
+        if problems.level == "fail":
+            raise Failure("The inventory has problems, fix them first: " + problems.detail)
+        facts = self.inventory_facts(host)
+        if "workload_nodes" not in facts["groups"]:
+            raise Failure(f"'{host}' is not in workload_nodes in inventories/local. The baseline only targets those.")
+        if not allow_dirty and self.dirty_files():
+            raise Failure("This checkout has uncommitted changes to tracked files. The baseline records the commit on "
+                          "the node, and validation rejects a dirty one. Commit or discard them first.")
+        touches_firewall = not tags or "firewall" in tags.split(",")
+        sources = facts["sources"]
+        if touches_firewall:
+            missing = self.controllers_not_in(sources, facts["controllers"])
+            if missing:
+                raise Failure(f"The controller's address {', '.join(missing)} is not covered by "
+                              "provisionkit_management_sources. The firewall would block this controller's SSH. Add it first.")
+        self.out(f"Baseline for {host} ({facts['address']})" + (f", tags: {tags}" if tags else ", all roles"))
+        self.out(f"  configuration commit: {self.head()[:12]}")
+        if touches_firewall:
+            self.out("  the firewall will allow SSH only from: " + (", ".join(sources) or "(nothing)"))
+            self.out("  Make sure your own workstation's address is in that list. The firewall role arms a 10 minute\n"
+                     "  rollback timer and asks you to log in from another device before it disarms.")
+        self.out("\nStep 1: dry run (changes nothing). If asked to confirm a login from another device, just press\n"
+                 "Enter: this is the firewall role's prompt, and nothing has been applied.\n")
+        if self.run_live(self.playbook("baseline", host, tags, ask_vault, check=True)):
+            raise Failure("The dry run failed. Nothing was changed.")
+        if check_only:
+            self.out("\nDry run finished. Nothing was changed.")
+            return
+        if not yes:
+            self.out("")
+            if ask(f"Type the node's name ({host}) to apply this to it, or anything else to stop: ").strip() != host:
+                raise Failure("Stopped. Nothing was changed.")
+        self.out(f"\nStep 2: applying to {host} ...\n")
+        if self.run_live(self.playbook("baseline", host, tags, ask_vault)):
+            raise Failure("The baseline run failed. " + (
+                "The firewall role rolls itself back, either now or when its timer fires, so SSH access returns. "
+                if touches_firewall else "") + "Fix the cause and run it again.")
+        self.out(f"\nStep 3: validating {host} ...\n")
+        valid = self.run_live(self.playbook("validate", host, None, ask_vault)) == 0
+        self.out("\nValidation passed." if valid else "\nValidation failed. Read the failing task above.")
+        if touches_firewall and not facts["firewall_applied"] and valid:
+            self.out("\nThe firewall is now enforced. Tell the validation and the panel to check it by adding this line to\n"
+                     "inventories/local/group_vars/all.yml:\n\n  provisionkit_firewall_applied: true\n")
+        self.out("Then click Collect data on the device in the panel (or wait for the timer) to refresh its status.")
+        if not valid:
+            raise Failure("Validation failed after applying.")
+
+    @staticmethod
+    def controllers_not_in(sources, controllers):
+        """Controller addresses that no management source covers. Hostnames are skipped, not guessed at."""
+        nets = []
+        for src in sources:
+            try:
+                nets.append(ipaddress.ip_network(str(src), strict=False))
+            except ValueError:
+                continue
+        missing = []
+        for c in controllers:
+            try:
+                ip = ipaddress.ip_address(str(c))
+            except ValueError:
+                continue
+            if not any(ip in n for n in nets):
+                missing.append(str(c))
+        return missing
+
     # ---- other commands ---------------------------------------------------------------------------------------------
     def version(self):
         return self.git("log", "-1", "--format=%h %cs %s").stdout.strip()
@@ -321,6 +446,13 @@ def main(argv=None, kit=None):
     up.add_argument("--skip-env", action="store_true", help="do not touch the Python environment")
     up.add_argument("--skip-service", action="store_true", help="do not touch the panel service")
     up.add_argument("--no-rollback", action="store_true", help="keep the new code even if the panel fails to start")
+    bl = sub.add_parser("baseline", help="apply the hardening baseline to one node (dry run, confirm, apply, validate)")
+    bl.add_argument("host", help="a node in workload_nodes, for example pk-worker")
+    bl.add_argument("--tags", help="only these roles, comma separated (for example: firewall)")
+    bl.add_argument("--check-only", action="store_true", help="dry run only, change nothing")
+    bl.add_argument("--yes", action="store_true", help="skip the typed confirmation")
+    bl.add_argument("--ask-vault-pass", action="store_true", help="prompt for the Ansible Vault password")
+    bl.add_argument("--allow-dirty", action="store_true", help="allow uncommitted changes (validation will reject the node)")
     sub.add_parser("check", help="run the health checks")
     st = sub.add_parser("status", help="show version, pending update and panel state")
     st.add_argument("--no-fetch", action="store_true", help="do not contact GitHub")
@@ -341,6 +473,9 @@ def main(argv=None, kit=None):
             if os.geteuid() == 0 and not kit.launcher_current():
                 kit.install_link()
             return 1 if any(r.level == "fail" for r in results) else 0
+        if a.command == "baseline":
+            kit.baseline(a.host, a.tags, a.check_only, a.yes, a.ask_vault_pass, a.allow_dirty)
+            return 0
         if a.command == "check":
             results = kit.check()
             kit.report(results)

@@ -5,6 +5,7 @@ so it runs before the virtualenv exists.
 
 ```
 provisionkit update     pull the latest main from GitHub, then make sure everything works
+provisionkit baseline H apply the hardening baseline to one node (see baseline.md)
 provisionkit check      run the health checks without changing anything
 provisionkit status     version, whether an update is waiting, panel state
 provisionkit version    the installed version

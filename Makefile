@@ -10,7 +10,7 @@ check:
 	yamllint .
 	python3 tests/test_validate_inventory.py
 	python3 scripts/validate_inventory.py inventories/example --example
-	python3 -m pytest -q tests/test_panel.py tests/test_panel_proxy.py tests/test_setup.py tests/test_scheduler.py tests/test_drift.py tests/test_pin_llm.py tests/test_cli.py
+	python3 -m pytest -q tests/test_panel.py tests/test_panel_proxy.py tests/test_setup.py tests/test_scheduler.py tests/test_drift.py tests/test_baseline.py tests/test_pin_llm.py tests/test_cli.py
 
 panel-demo:
 	python3 -m panel demo
