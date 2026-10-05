@@ -5,6 +5,9 @@ are asleep. It is **off until you opt in**, because it takes machines down.
 
 ## What "12am local time" means
 
+Every machine is set to America/New_York (Eastern time) by the baseline, and `provisionkit update` does the same on the
+controller. To fix machines that are already provisioned, run `provisionkit baseline --tags timezone`.
+
 Each machine reboots at 00:00 **in its own time zone**. Ubuntu servers often default to UTC, which would mean
 the evening in the United States. Check with `timedatectl` and make it explicit with `provisionkit_timezone`
 (below). The panel shows every node's time zone and its next reboot on the device page.
@@ -15,7 +18,7 @@ In `inventories/local/group_vars/all.yml`, or per group or host:
 
 ```yaml
 provisionkit_nightly_reboot: true
-provisionkit_timezone: America/New_York        # optional but recommended
+provisionkit_timezone: America/New_York        # already the default; set it only to use another zone
 # provisionkit_nightly_reboot_time: "00:00"    # default
 # provisionkit_nightly_reboot_max_wait_minutes: 30
 # provisionkit_nightly_reboot_only_if_required: false

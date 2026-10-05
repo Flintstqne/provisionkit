@@ -8,34 +8,6 @@
     fail_msg: "provisionkit_nightly_reboot_time must look like 00:00 and the wait must be 1 to 240 minutes."
     quiet: true
 
-- name: Make the time zone explicit
-  when: nightly_reboot_timezone | length > 0
-  block:
-    - name: Look the time zone up in the system database
-      ansible.builtin.stat:
-        path: "/usr/share/zoneinfo/{{ nightly_reboot_timezone }}"
-      register: nightly_reboot_zone
-      when: nightly_reboot_timezone is match('^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$')
-
-    - name: Assert the time zone name exists
-      ansible.builtin.assert:
-        that:
-          - nightly_reboot_timezone is match('^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$')
-          - nightly_reboot_zone.stat.isreg | default(false)
-        fail_msg: "'{{ nightly_reboot_timezone }}' is not a time zone name. Try America/New_York or Europe/London."
-        quiet: true
-
-    - name: Read the current time zone
-      ansible.builtin.command: timedatectl show -p Timezone --value
-      register: nightly_reboot_current
-      changed_when: false
-      check_mode: false
-
-    - name: Set the time zone
-      ansible.builtin.command: "timedatectl set-timezone {{ nightly_reboot_timezone | quote }}"
-      when: nightly_reboot_current.stdout | trim != nightly_reboot_timezone
-      changed_when: true
-
 - name: Install the nightly reboot
   when: nightly_reboot_enabled | bool
   block:

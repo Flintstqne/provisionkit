@@ -183,3 +183,40 @@ def test_the_updater_cannot_be_hijacked_through_the_request_directory():
     assert "install -d -m 0700 -o \"$RUN_USER\" -g \"$RUN_USER\" /var/lib/provisionkit-requests" in installer
     panel_unit = (ROOT / "panel/deploy/provisionkit-panel.service").read_text()
     assert "/var/lib/provisionkit-requests" in panel_unit and "/var/lib/provisionkit-update" not in panel_unit
+
+
+class Done:
+    def __init__(self, out="", code=0):
+        self.stdout, self.returncode = out, code
+
+
+def stub_clock(world, monkeypatch, current, tmp_path, set_code=0):
+    calls = []
+    monkeypatch.setattr(cli.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(cli, "ZONEINFO", tmp_path / "zi")
+    (tmp_path / "zi" / "America").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "zi" / "America" / "New_York").write_text("x")
+
+    def sh(cmd, check=True, root=False, timeout=600):
+        calls.append(list(cmd))
+        return Done(current if cmd[1] == "show" else "", set_code)
+    monkeypatch.setattr(world.kit, "sh", sh)
+    return calls
+
+
+def test_the_controller_is_moved_to_new_york_time(world, monkeypatch, tmp_path):
+    calls = stub_clock(world, monkeypatch, "UTC", tmp_path)
+    world.kit.ensure_timezone()
+    assert ["timedatectl", "set-timezone", "America/New_York"] in calls
+
+
+def test_a_controller_already_on_new_york_time_is_left_alone(world, monkeypatch, tmp_path):
+    calls = stub_clock(world, monkeypatch, "America/New_York", tmp_path)
+    world.kit.ensure_timezone()
+    assert not any(c[1] == "set-timezone" for c in calls)
+
+
+def test_a_failed_clock_change_does_not_fail_the_update(world, monkeypatch, tmp_path):
+    stub_clock(world, monkeypatch, "UTC", tmp_path, set_code=1)
+    world.kit.ensure_timezone()

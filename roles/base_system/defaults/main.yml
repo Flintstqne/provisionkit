@@ -1,2 +1,4 @@
 ---
 base_system_packages: [ca-certificates, curl, htop, vim-tiny]
+# Every managed node uses this time zone unless provisionkit_timezone says otherwise.
+base_system_timezone: "{{ provisionkit_timezone | default('America/New_York') }}"

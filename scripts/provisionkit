@@ -43,6 +43,7 @@ DEFAULT_KEY = "/home/provisionkit/.ssh/provisionkit_ed25519"
 TAG_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
 TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 ZONE_RE = re.compile(r"^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$")
+DEFAULT_TIMEZONE = "America/New_York"
 SBIN = Path("/usr/local/sbin")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 ZONEINFO = Path("/usr/share/zoneinfo")
@@ -205,6 +206,7 @@ class Kit:
             if not skip_env:
                 self.note("Checking the Python environment")
                 self.ensure_env("panel/requirements.txt" in changed)
+            self.ensure_timezone()
             if not skip_service:
                 self.note("Restarting the panel if needed")
                 self.ensure_service(changed)
@@ -275,6 +277,16 @@ class Kit:
             if want.returncode != 0 or not installed.exists() or installed.read_text() != want.stdout:
                 return False
         return True
+
+    def ensure_timezone(self, zone=DEFAULT_TIMEZONE):
+        """The controller uses the same time zone as the managed nodes. Not fatal: an update never fails over a clock."""
+        if os.geteuid() != 0 or not shutil.which("timedatectl") or not (ZONEINFO / zone).is_file():
+            return
+        now = self.sh(["timedatectl", "show", "-p", "Timezone", "--value"], check=False, root=True).stdout.strip()
+        if now and now != zone:
+            done = self.sh(["timedatectl", "set-timezone", zone], check=False, root=True)
+            self.out(f"Time zone set to {zone} (was {now})." if done.returncode == 0
+                     else f"Could not set the time zone to {zone}; leaving {now}.")
 
     def ensure_service(self, changed, force=False):
         if not self.service_installed():

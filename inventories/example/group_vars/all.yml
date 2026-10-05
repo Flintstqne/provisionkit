@@ -7,7 +7,7 @@ provisionkit_automatic_reboot: false
 # Nightly reboot of managed nodes (see docs/nightly-reboot.md). Off until you opt in, per group or host.
 # provisionkit_nightly_reboot: true
 # provisionkit_nightly_reboot_time: "00:00"   # in each node's own time zone
-# provisionkit_timezone: America/New_York      # makes "local time" explicit; unset leaves nodes alone
+# provisionkit_timezone: America/New_York      # the default for every node; set another zone only if you need one
 provisionkit_k3s_enabled: false
 provisionkit_management_sources:
   - 192.0.2.10/32  # controller (example)

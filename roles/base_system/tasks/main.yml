@@ -15,3 +15,31 @@
     name: systemd-timesyncd
     state: started
     enabled: true
+
+- name: Set the time zone
+  tags: [timezone]
+  block:
+    - name: Look the time zone up in the system database
+      ansible.builtin.stat:
+        path: "/usr/share/zoneinfo/{{ base_system_timezone }}"
+      register: base_system_zone
+      when: base_system_timezone is match('^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$')
+
+    - name: Assert the time zone name exists
+      ansible.builtin.assert:
+        that:
+          - base_system_timezone is match('^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$')
+          - base_system_zone.stat.isreg | default(false)
+        fail_msg: "'{{ base_system_timezone }}' is not a time zone name. Try America/New_York or Europe/London."
+        quiet: true
+
+    - name: Read the current time zone
+      ansible.builtin.command: timedatectl show -p Timezone --value
+      register: base_system_current
+      changed_when: false
+      check_mode: false
+
+    - name: Set the time zone
+      ansible.builtin.command: "timedatectl set-timezone {{ base_system_timezone | quote }}"
+      when: base_system_current.stdout | trim != base_system_timezone
+      changed_when: true

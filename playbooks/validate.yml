@@ -101,7 +101,6 @@
       ansible.builtin.command: timedatectl show -p Timezone --value
       register: validate_timezone
       changed_when: false
-      when: provisionkit_timezone | default('') | length > 0
 
     - name: Assert the nightly reboot is scheduled
       ansible.builtin.assert:
@@ -114,12 +113,11 @@
 
     - name: Assert the time zone is the declared one
       ansible.builtin.assert:
-        that: validate_timezone.stdout | trim == provisionkit_timezone
+        that: validate_timezone.stdout | trim == (provisionkit_timezone | default('America/New_York'))
         fail_msg: >-
           {{ inventory_hostname }}: time zone is {{ validate_timezone.stdout | trim }},
-          expected {{ provisionkit_timezone }}.
+          expected {{ provisionkit_timezone | default('America/New_York') }}.
         quiet: true
-      when: provisionkit_timezone | default('') | length > 0
 
     - name: Assert admin accounts have sudo
       ansible.builtin.assert:

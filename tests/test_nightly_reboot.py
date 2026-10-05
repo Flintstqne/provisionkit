@@ -157,8 +157,8 @@ def test_an_unknown_time_zone_name_is_rejected_before_anything_is_changed(tmp_pa
 - hosts: localhost
   gather_facts: false
   vars: {provisionkit_nightly_reboot: false, provisionkit_timezone: "Mars/Olympus_Mons"}
-  roles: [nightly_reboot]
+  roles: [base_system]
 """)
-    r = subprocess.run([ANSIBLE, str(play)], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+    r = subprocess.run([ANSIBLE, str(play), "--tags", "timezone"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
                        env={**os.environ, "ANSIBLE_NOCOLOR": "1", "ANSIBLE_ROLES_PATH": str(ROOT / "roles")})
     assert r.returncode != 0 and "is not a time zone name" in r.stdout + r.stderr
