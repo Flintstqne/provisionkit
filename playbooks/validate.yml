@@ -52,10 +52,11 @@
         - /var/run/reboot-required
       register: validate_stat
 
-    - name: Check timers are enabled
-      ansible.builtin.command: "systemctl is-enabled {{ item }}"
+    - name: Read unit state (no state argument, so read-only)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
       loop: [apt-daily.timer, apt-daily-upgrade.timer, auditd.service, ssh.service]
-      changed_when: false
+      register: validate_units
 
     - name: Assert baseline state
       ansible.builtin.assert:
@@ -80,6 +81,14 @@
       loop: "{{ validate_groups.results }}"
       loop_control:
         label: "{{ item.item.name }}"
+
+    - name: Assert units are enabled
+      ansible.builtin.assert:
+        that: item.status.UnitFileState == 'enabled'
+        quiet: true
+      loop: "{{ validate_units.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
     - name: Assert audit rules are loaded
       ansible.builtin.assert:
