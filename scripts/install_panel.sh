@@ -72,7 +72,9 @@ fi
 step "Data directory"
 as_user install -d -m 0700 "$REPO/panel/instance"
 # The service sees the home directory read-only, except ~/.ansible, which must exist to be made writable.
-as_user install -d -m 0700 "$(home_of "$RUN_USER")/.ansible"
+as_user install -d -m 0700 "$(home_of "$RUN_USER")/.ansible" "$(home_of "$RUN_USER")/.ssh"
+# known_hosts must exist to be made writable for the service; the panel only appends to it.
+as_user bash -c 'touch "$HOME/.ssh/known_hosts" && chmod 600 "$HOME/.ssh/known_hosts"'
 
 if [ "$SKIP_USER" = 0 ]; then
   step "Admin account"

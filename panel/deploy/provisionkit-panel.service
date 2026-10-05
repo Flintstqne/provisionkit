@@ -16,8 +16,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-# The home directory is read-only, except where Ansible keeps its temporary files and ssh control sockets.
-ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local -@HOME_DIR@/.ansible
+# The home directory is read-only, except where Ansible keeps its temporary files and ssh control sockets, and the
+# known_hosts file, which the panel appends to when an admin trusts a new server's host key.
+ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local -@HOME_DIR@/.ansible -@HOME_DIR@/.ssh/known_hosts
 
 [Install]
 WantedBy=multi-user.target

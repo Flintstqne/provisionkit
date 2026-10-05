@@ -6,7 +6,7 @@ import time
 from flask import (Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session,
                    url_for)
 
-from . import auth, fleet, jobs
+from . import auth, fleet, jobs, scheduler, setup
 from .db import audit, get_db
 from .inventory import NO_ADD, InventoryError
 
@@ -18,8 +18,19 @@ def _inv():
     return current_app.config["INVENTORY"]
 
 
+def _stale_after():
+    """Data counts as stale after the configured time, or after three missed scheduled collections."""
+    minutes = scheduler.get_interval(get_db())
+    return max(current_app.config["STALE_AFTER_S"], 3 * minutes * 60)
+
+
 def _devices():
-    return fleet.devices(_inv(), get_db(), current_app.config["STALE_AFTER_S"])
+    return fleet.devices(_inv(), get_db(), _stale_after())
+
+
+def _ssh_port(d):
+    """The host's own ansible_port, else the fleet-wide provisionkit_ssh_port, else 22."""
+    return int(d["vars"].get("ansible_port") or _inv().raw_vars().get("provisionkit_ssh_port", 22))
 
 
 def _log(action, target="", detail=""):
@@ -109,7 +120,7 @@ def device_new():
         else:
             name = form["name"].strip().lower()
             _log("device.add", name, f"{form['address']} groups={','.join(form['groups'])}")
-            flash(f"Device {name} added to the inventory. Bootstrap it from the controller, then collect its data.", "ok")
+            flash(f"Device {name} added to the inventory. Follow the setup steps below.", "ok")
             return redirect(url_for("main.device", name=name, tab="overview"))
     return render_template("device_new.html", groups=groups, form=form, page="devices")
 
@@ -131,8 +142,18 @@ def device(name):
     last = db.execute("SELECT h.*, j.finished FROM job_hosts h JOIN jobs j ON j.id=h.job_id "
                       "WHERE h.host=? AND j.kind='validate' ORDER BY h.job_id DESC LIMIT 1", (name,)).fetchone()
     status = db.execute("SELECT * FROM host_status WHERE host=?", (name,)).fetchone()
+    checklist = None
+    if not d["snapshot"] and d["status"] != fleet.CONTROLLER:
+        try:
+            trusted = setup.is_trusted(d["address"] or name, _ssh_port(d))
+        except setup.SetupError:
+            trusted = False
+        last_collect = db.execute("SELECT h.* FROM job_hosts h JOIN jobs j ON j.id=h.job_id "
+                                  "WHERE h.host=? AND j.kind='collect' ORDER BY h.job_id DESC LIMIT 1", (name,)).fetchone()
+        checklist = setup.steps(d, trusted, last_collect, setup.bootstrap_command(
+            str(current_app.config["ROOT"]), _inv().dir, name))
     return render_template("device.html", d=d, tab=tab, tabs=TABS, jobs=jobs_for, activity=activity, last_validate=last,
-                           host_status=status, page="devices")
+                           host_status=status, checklist=checklist, page="devices")
 
 
 @bp.post("/devices/<name>/remove")
@@ -152,12 +173,52 @@ def device_remove(name):
     return redirect(url_for("main.devices"))
 
 
+@bp.post("/devices/<name>/hostkey")
+@auth.require("admin")
+def hostkey_review(name):
+    """Fetch the server's host key and show its fingerprint. Nothing is trusted until the admin confirms it."""
+    d = _devices().get(name) or abort(404)
+    port = _ssh_port(d)
+    try:
+        _line, kind, fp = setup.scan_host_key(d["address"] or name, port)
+    except setup.SetupError as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.device", name=name))
+    _log("hostkey.review", name, fp)
+    return render_template("hostkey.html", d=d, port=port, kind=kind, fingerprint=fp, page="devices")
+
+
+@bp.post("/devices/<name>/hostkey/trust")
+@auth.require("admin")
+def hostkey_trust(name):
+    d = _devices().get(name) or abort(404)
+    if request.form.get("verified") != "yes":
+        flash("Confirm that you checked the fingerprint on the server.", "error")
+        return redirect(url_for("main.device", name=name))
+    try:
+        added = setup.trust_host_key(d["address"] or name, _ssh_port(d), request.form.get("fingerprint", ""))
+    except setup.SetupError as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.device", name=name))
+    _log("hostkey.trust", name, request.form.get("fingerprint", "") + ("" if added else " (already trusted)"))
+    if request.form.get("collect") == "yes":
+        try:
+            job_id = jobs.start(current_app._get_current_object(), "collect", name, g.user["username"],
+                                auth.client_ip(), _inv())
+        except jobs.JobError as e:
+            flash(f"Host key trusted. Could not start collection: {e}", "error")
+            return redirect(url_for("main.device", name=name))
+        return redirect(url_for("main.job", job_id=job_id))
+    flash("Host key trusted.", "ok")
+    return redirect(url_for("main.device", name=name))
+
+
 @bp.post("/devices/<name>/ping")
 @auth.require("operator")
 def device_ping(name):
     """TCP connect to the SSH port from the controller. No credentials involved."""
     d = _devices().get(name) or abort(404)
-    port = int(_inv().raw_vars().get("provisionkit_ssh_port", 22))
+    port = _ssh_port(d)
     t0 = time.time()
     try:
         with socket.create_connection((d["address"] or name, port), timeout=3):
@@ -243,9 +304,26 @@ def audit_log():
 @bp.route("/settings")
 @auth.require("admin")
 def settings():
-    users = get_db().execute("SELECT * FROM users ORDER BY username").fetchall()
+    db = get_db()
+    users = db.execute("SELECT * FROM users ORDER BY username").fetchall()
     return render_template("settings.html", users=users, roles=auth.ROLES, problems=_inv().problems(),
-                           vars=_inv().group_vars(), cfg=current_app.config, page="settings")
+                           vars=_inv().group_vars(), cfg=current_app.config, page="settings",
+                           intervals=scheduler.INTERVALS, interval=scheduler.get_interval(db), stale_after=_stale_after(),
+                           next_run=scheduler.next_run_at(db), last_run=scheduler.last_run(db))
+
+
+@bp.post("/settings/schedule")
+@auth.require("admin")
+def schedule_update():
+    try:
+        minutes = int(request.form.get("minutes", ""))
+        scheduler.set_interval(get_db(), minutes)
+    except ValueError:
+        flash("Choose one of the listed intervals.", "error")
+    else:
+        _log("schedule.update", "collect", f"{minutes} minutes" if minutes else "off")
+        flash("Scheduled collection turned off." if not minutes else "Scheduled collection saved.", "ok")
+    return redirect(url_for("main.settings"))
 
 
 @bp.post("/settings/users")

@@ -4,6 +4,22 @@ document.addEventListener("submit", (e) => {
   if (msg && !window.confirm(msg)) e.preventDefault();
 });
 
+// Copy buttons: data-copy names the element whose text to copy.
+document.querySelectorAll("[data-copy]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const el = document.getElementById(btn.dataset.copy);
+    try {
+      await navigator.clipboard.writeText(el.textContent.trim());
+      btn.textContent = "Copied";
+    } catch (_) {
+      const r = document.createRange(); r.selectNodeContents(el);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      btn.textContent = "Press Ctrl+C";
+    }
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+});
+
 // Click-to-sort tables.
 document.querySelectorAll("table[data-sortable] th[data-sort]").forEach((th, idx) => {
   th.addEventListener("click", () => {

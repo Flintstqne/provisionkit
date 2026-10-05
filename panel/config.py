@@ -16,6 +16,7 @@ def inventory_dir():
 
 
 class Config:
+    SCHEDULER = True  # background collection timer; never started under TESTING
     DEMO = os.environ.get("PANEL_DEMO") == "1"
     DB_PATH = INSTANCE / "panel.db"
     SNAPSHOT_DIR = INSTANCE / "snapshots"

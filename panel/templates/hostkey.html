@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Trust host key{% endblock %}
+{% block crumbs %}Infrastructure / <a href="{{ url_for('main.devices') }}">Devices</a> / <a href="{{ url_for('main.device', name=d.name) }}">{{ d.name }}</a> / Host key{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Trust host key for {{ d.name }}</h1><p>The controller read this key from {{ d.address }}:{{ port }}. Confirm it is really your server before trusting it.</p></div></div>
+<section class="card"><dl class="props">
+  <dt>Key type</dt><dd class="mono">{{ kind }}</dd>
+  <dt>Fingerprint</dt><dd class="mono">{{ fingerprint }}</dd>
+</dl>
+<div class="body">
+  <p>Check the fingerprint on the server itself, at its console or over a connection you already trust:</p>
+  <p class="cmd"><code class="mono">ssh-keygen -lf /etc/ssh/ssh_host_{{ kind }}_key.pub</code></p>
+  <p>If the values differ, someone could be intercepting the connection. Do not trust the key.</p>
+  <form method="post" action="{{ url_for('main.hostkey_trust', name=d.name) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="fingerprint" value="{{ fingerprint }}">
+    <div class="checks"><label><input type="checkbox" name="verified" value="yes" required> <span>I compared this fingerprint with the one on the server and they match.</span></label>
+      <label><input type="checkbox" name="collect" value="yes" checked> <span>Collect data from {{ d.name }} right after</span></label></div>
+    <div class="actions"><button class="btn primary">Trust this key</button><a class="btn" href="{{ url_for('main.device', name=d.name) }}">Cancel</a></div>
+  </form>
+</div></section>
+{% endblock %}

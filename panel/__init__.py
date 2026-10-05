@@ -5,8 +5,8 @@ import time
 from flask import Flask, g, render_template, request, session
 from flask.globals import request_ctx
 
-from . import auth, cfaccess, fleet
-from .config import Config, inventory_dir
+from . import auth, cfaccess, fleet, scheduler
+from .config import ROOT, Config, inventory_dir
 from .db import close_db, init_db
 from .inventory import GROUP_INFO, Inventory
 
@@ -15,6 +15,7 @@ def create_app(overrides=None):
     app = Flask(__name__)
     app.config.from_object(Config)
     app.config.update(overrides or {})
+    app.config.setdefault("ROOT", ROOT)
     for d in (app.config["SNAPSHOT_DIR"], app.config["JOB_LOG_DIR"]):
         d.mkdir(parents=True, exist_ok=True)
     app.config.setdefault("INVENTORY", None)
@@ -59,6 +60,8 @@ def create_app(overrides=None):
 
     for code, title in ((400, "Bad request"), (403, "Access denied"), (404, "Not found"), (413, "Request too large")):
         app.register_error_handler(code, lambda e, c=code, t=title: error_page(e, c, t))
+    if app.config["SCHEDULER"] and not app.testing:
+        scheduler.start(app)
     return app
 
 

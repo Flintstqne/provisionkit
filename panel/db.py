@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS job_hosts (
   job_id INTEGER NOT NULL, host TEXT NOT NULL, ok INTEGER, failed INTEGER, unreachable INTEGER,
   message TEXT, PRIMARY KEY (job_id, host));
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY, ts REAL NOT NULL, user TEXT, action TEXT NOT NULL, target TEXT, detail TEXT, ip TEXT);
 """

@@ -8,12 +8,20 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 |---|---|
 | ![Dashboard](../docs/panel/dashboard.png) | ![Devices](../docs/panel/devices.png) |
 | ![Device](../docs/panel/device.png) | ![Compliance](../docs/panel/compliance.png) |
+| ![Guided setup](../docs/panel/setup.png) | ![Settings](../docs/panel/settings.png) |
 
 ## What it does
 
 - **Dashboard**: device counts, compliance score, open findings, pending reboots, OS mix, devices needing attention.
 - **Devices**: searchable, sortable list with status and compliance. Per-device tabs for overview, hardware, network,
   storage, compliance checks, configuration (inventory entry and `group_vars`, secrets masked) and activity.
+- **Guided setup for new devices**: after you add a device, its page shows a checklist. The admin reviews the
+  server's SSH host key fingerprint and trusts it with one click (the panel re-reads the key and refuses if the
+  fingerprint changed since the review), then data collection starts. The one manual step is bootstrapping the
+  deploy account, which needs the server's initial admin login. The panel never handles that login, so the checklist
+  shows the exact command to copy.
+- **Scheduled collection**: Settings has a timer (every 30 minutes up to daily, or off). It runs the same read-only
+  collect job as a user named `scheduler`, one job at a time. Data counts as stale after three missed runs.
 - **Add and remove devices**: writes the Ansible inventory (`inventories/local/hosts.yml`). Comments are kept, the
   change is validated by `scripts/validate_inventory.py` before it is saved, and the previous file is backed up
   to `.backups/`. Adding a device never connects to it.
@@ -79,8 +87,10 @@ command line first, and their SSH host key in the controller's `known_hosts` (`a
 
 ## Status
 
-Tested: 42 pytest cases (auth, roles, CSRF, lockout, inventory editing and validation, job runner, fleet states,
-log parsing). `collect.yml` was run end to end through the panel's job runner against localhost with real
+Tested: 68 pytest cases (auth, roles, CSRF, lockout, inventory editing and validation, job runner, fleet states,
+log parsing, setup checklist, host key trust, scheduler). The host key tests run against a real throwaway sshd and are
+skipped where none is installed. The whole flow (collect fails on an untrusted key, trust it in the panel, collect
+succeeds, device goes Online) was also run once over real SSH and real Ansible against a local sshd. `collect.yml` was run end to end through the panel's job runner against localhost with real
 `ansible-core` 2.19. **Not tested** against real remote servers, over SSH, or on the Raspberry Pi. The unreachable-host
 path is covered only by a parser test on sample output. There is no TLS, password reset or per-user history beyond the
 audit log. Facts are a point-in-time snapshot; there is no metrics history.
