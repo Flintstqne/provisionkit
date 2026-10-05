@@ -1,0 +1,60 @@
+---
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Read-only token: nothing in this workflow needs to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the config drift tests and the baseline manifest read git history
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # the controller's Python
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install the pinned tools
+        run: python -m pip install -r requirements-ci.txt
+
+      # yamllint, ansible syntax checks for every playbook, inventory validator, and the pytest suite. The tests that
+      # start a real sshd skip themselves here because the runner has no /run/sshd.
+      - name: make check
+        run: make check
+
+      - name: ansible-lint
+        run: ansible-lint
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Audit the pinned dependencies for known vulnerabilities
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements-ci.txt
