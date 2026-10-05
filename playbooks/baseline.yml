@@ -18,6 +18,7 @@
     - {role: automatic_updates, tags: [automatic_updates]}
     - {role: logging, tags: [logging]}
     - {role: audit, tags: [audit]}
+    - {role: baseline_manifest, tags: [baseline_manifest]}
   post_tasks:
     - name: Check for a pending reboot
       ansible.builtin.stat:
