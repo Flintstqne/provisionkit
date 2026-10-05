@@ -44,8 +44,14 @@
     - name: Read unit state (no state argument, so read-only)
       ansible.builtin.systemd:
         name: "{{ item }}"
-      loop: [auditd.service, ssh.service, ssh.socket]
+      loop: [auditd.service, ssh.service, ssh.socket, pk-nightly-reboot.timer]
       register: collect_units
+      failed_when: false
+
+    - name: Read the time zone
+      ansible.builtin.command: timedatectl show -p Timezone --value
+      register: collect_timezone
+      changed_when: false
       failed_when: false
 
     - name: Stat reboot marker
@@ -76,6 +82,14 @@
           host: "{{ inventory_hostname }}"
           collected_at: "{{ ansible_facts['date_time']['iso8601'] }}"
           reboot_required: "{{ collect_reboot.stat.exists }}"
+          timezone: "{{ collect_timezone.stdout | default('') | trim }}"
+          nightly_reboot:
+            installed: >-
+              {{ (collect_unit_state['pk-nightly-reboot.timer']['LoadState'] | default('not-found')) != 'not-found' }}
+            enabled: >-
+              {{ (collect_unit_state['pk-nightly-reboot.timer']['UnitFileState'] | default('')) == 'enabled'
+                 and (collect_unit_state['pk-nightly-reboot.timer']['ActiveState'] | default('')) == 'active' }}
+            next: "{{ collect_unit_state['pk-nightly-reboot.timer']['NextElapseUSecRealtime'] | default('') }}"
           # Raw text, parsed by the panel, so a damaged manifest shows as "Unreadable" and never breaks collection.
           manifest_raw: >-
             {{ (collect_manifest.content | b64decode)[:20000] if collect_manifest.content is defined else '' }}

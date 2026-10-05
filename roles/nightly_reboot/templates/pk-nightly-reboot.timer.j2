@@ -1,0 +1,13 @@
+# Managed by ProvisionKit (nightly_reboot role). Do not edit by hand.
+[Unit]
+Description=ProvisionKit nightly reboot at {{ nightly_reboot_time }} local time
+
+[Timer]
+# Local time of this machine, so the time zone must be right. Not persistent on purpose: a node that was off at
+# {{ nightly_reboot_time }} must not reboot again right after it boots.
+OnCalendar=*-*-* {{ nightly_reboot_time }}:00
+Persistent=false
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

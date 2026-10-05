@@ -1,0 +1,11 @@
+---
+- name: Reload systemd for the nightly reboot
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Restart the nightly reboot timer
+  ansible.builtin.systemd:
+    name: pk-nightly-reboot.timer
+    state: restarted
+  when: not ansible_check_mode and (nightly_reboot_enabled | bool)

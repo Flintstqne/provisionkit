@@ -91,6 +91,36 @@
       vars:
         validate_manifest: "{{ validate_manifest_raw.content | b64decode | from_json }}"
 
+    - name: Read the nightly reboot timer
+      ansible.builtin.systemd:
+        name: pk-nightly-reboot.timer
+      register: validate_reboot_timer
+      when: provisionkit_nightly_reboot | default(false) | bool
+
+    - name: Read the time zone
+      ansible.builtin.command: timedatectl show -p Timezone --value
+      register: validate_timezone
+      changed_when: false
+      when: provisionkit_timezone | default('') | length > 0
+
+    - name: Assert the nightly reboot is scheduled
+      ansible.builtin.assert:
+        that:
+          - validate_reboot_timer.status.UnitFileState == 'enabled'
+          - validate_reboot_timer.status.ActiveState == 'active'
+        fail_msg: "{{ inventory_hostname }}: nightly reboot is wanted but the timer is not enabled and active."
+        quiet: true
+      when: provisionkit_nightly_reboot | default(false) | bool
+
+    - name: Assert the time zone is the declared one
+      ansible.builtin.assert:
+        that: validate_timezone.stdout | trim == provisionkit_timezone
+        fail_msg: >-
+          {{ inventory_hostname }}: time zone is {{ validate_timezone.stdout | trim }},
+          expected {{ provisionkit_timezone }}.
+        quiet: true
+      when: provisionkit_timezone | default('') | length > 0
+
     - name: Assert admin accounts have sudo
       ansible.builtin.assert:
         that: "'sudo' in item.stdout.split()"

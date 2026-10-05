@@ -53,6 +53,8 @@
     <dt>Kernel</dt><dd class="mono">{{ d.kernel or '-' }}</dd>
     <dt>Uptime</dt><dd>{{ uptime(d.uptime_s) if d.snapshot else '-' }}</dd>
     <dt>Reboot required</dt><dd>{{ 'Yes' if d.reboot else 'No' }}</dd>
+    {% if d.snapshot %}<dt>Time zone</dt><dd>{{ d.timezone or '-' }}</dd>
+    <dt>Nightly reboot</dt><dd>{% if d.nightly and d.nightly.scheduled %}Scheduled{% if d.nightly.next %}, next {{ d.nightly.next }}{% endif %}{% elif d.nightly and d.nightly.installed %}Installed but not active{% else %}Not scheduled{% endif %}</dd>{% endif %}
   </dl></section>
   <section class="card"><header><h2>Resources</h2></header><div class="body bars">
     <span>Memory</span>{% if d.mem_used_pct is not none %}{{ bar(d.mem_used_pct, 'bad' if d.mem_used_pct > 90 else 'warn' if d.mem_used_pct > 75 else '') }}<span class="num">{{ d.mem_used_pct }}%</span>{% else %}<span class="muted">-</span><span></span>{% endif %}

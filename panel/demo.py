@@ -74,6 +74,9 @@ def _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now, manifest_r
     return {
         "host": name, "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "reboot_required": reboot,
         "manifest_raw": manifest_raw,
+        "timezone": "America/New_York",
+        "nightly_reboot": {"installed": name != "pk-web02", "enabled": name != "pk-web02",
+                           "next": "" if name == "pk-web02" else "Tue 2026-10-06 00:00:00 EDT"},
         "facts": {"os": "Ubuntu", "os_version": os_ver, "kernel": "6.8.0-45-generic" if os_ver == "24.04" else "5.15.0-122-generic",
                   "arch": "x86_64", "fqdn": f"{name}.lab.example", "hostname": name, "python": "3.12.3",
                   "cpu_model": "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz", "cpu_count": cpus, "mem_total_mb": mem,
