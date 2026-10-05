@@ -1,0 +1,10 @@
+# Managed by ProvisionKit. Sorts before 50-cloud-init.conf; sshd uses the first value it sees.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+X11Forwarding no
+AllowAgentForwarding no
+AllowUsers {{ ([provisionkit_deploy_user] + provisionkit_admin_users | map(attribute='name') | list) | join(' ') }}
+Match User {{ provisionkit_deploy_user }}
+    AllowTcpForwarding no

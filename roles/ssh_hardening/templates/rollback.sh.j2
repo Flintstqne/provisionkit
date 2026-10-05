@@ -1,0 +1,8 @@
+#!/bin/sh
+# Restores the previous SSH policy fragment (or removes ours) and reloads sshd.
+if [ -f {{ ssh_hardening_state_dir }}/previous.conf ]; then
+  cp {{ ssh_hardening_state_dir }}/previous.conf {{ ssh_hardening_fragment }}
+else
+  rm -f {{ ssh_hardening_fragment }}
+fi
+systemctl reload ssh
