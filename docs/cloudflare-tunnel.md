@@ -18,8 +18,8 @@ like internet access to SSH on the controller. Three layers protect it:
 Do the first two steps before any tunnel work: confirm the panel runs on pk-control and you can sign in over an SSH
 tunnel (`ssh -L 8080:127.0.0.1:8080 pk-control`, then open `http://127.0.0.1:8080`).
 
-1. **Run the panel as a service** with `panel/deploy/provisionkit-panel.service`. It loads
-   `/etc/provisionkit-panel.env` (template: `panel/deploy/provisionkit-panel.env.example`).
+1. **Run the panel as a service** with `sudo scripts/install_panel.sh`. It loads `/etc/provisionkit-panel.env`
+   (values to set: `panel/deploy/provisionkit-panel.env.example`).
 2. **Install cloudflared** on pk-control (Debian 12, arm64). Follow Cloudflare's current install instructions for
    Debian packages.
 3. **Create the tunnel** (interactive, needs your Cloudflare account and a domain in it):

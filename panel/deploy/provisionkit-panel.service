@@ -1,22 +1,23 @@
-# Install on the controller as /etc/systemd/system/provisionkit-panel.service
-# Assumes the repo is at /opt/provisionkit with a venv in /opt/provisionkit/.venv and a dedicated "pkpanel" user
-# that can read the repo and the deploy key (provisionkit_deploy_key_file).
+# Template. scripts/install_panel.sh fills in the @...@ values and installs this as
+# /etc/systemd/system/provisionkit-panel.service. It runs as the controller user that already has the deploy key and
+# the servers' host keys, because the panel starts ansible-playbook as that user.
 [Unit]
 Description=ProvisionKit Control Center
 After=network-online.target
 
 [Service]
-User=pkpanel
-WorkingDirectory=/opt/provisionkit
-Environment=PATH=/opt/provisionkit/.venv/bin:/usr/bin:/bin
+User=@RUN_USER@
+WorkingDirectory=@REPO@
+Environment=PATH=@REPO@/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=ANSIBLE_HOME=@REPO@/panel/instance/ansible-home
 EnvironmentFile=-/etc/provisionkit-panel.env
-ExecStart=/opt/provisionkit/.venv/bin/python -m panel run --host 127.0.0.1 --port 8080
+ExecStart=@REPO@/.venv/bin/python -m panel run --host 127.0.0.1 --port @PORT@
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/provisionkit/panel/instance /opt/provisionkit/inventories/local
+ProtectHome=read-only
+ReadWritePaths=@REPO@/panel/instance -@REPO@/inventories/local
 
 [Install]
 WantedBy=multi-user.target

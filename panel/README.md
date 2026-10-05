@@ -42,6 +42,21 @@ python -m panel create-user alice --role admin
 python -m panel run                     # http://127.0.0.1:8080
 ```
 
+### Install as a service on the controller
+
+On pk-control, as the account that already runs Ansible (it holds the deploy key and the servers' host keys):
+
+```
+git clone <your repo url> ~/provisionkit && cd ~/provisionkit && git checkout feature/panel-cloudflare
+sudo scripts/install_panel.sh            # asks for an admin username and password
+```
+
+The script builds the virtualenv, creates `inventories/local` if missing, adds the admin user, installs and starts
+`provisionkit-panel.service` (loopback only), and waits for the health check. It is safe to run again. Then, from your
+own computer: `ssh -L 8080:127.0.0.1:8080 <user>@<controller>` and open `http://127.0.0.1:8080`. Settings for HTTPS or
+a Cloudflare tunnel go in `/etc/provisionkit-panel.env` (commented template created for you).
+`scripts/install_panel.sh --print-unit` shows the systemd unit without installing anything.
+
 Try it without a lab: `python -m panel demo` serves synthetic data on loopback (sign in as `demo` /
 `demo-password-123`) and simulates jobs.
 
@@ -52,14 +67,15 @@ command line first, and their SSH host key in the controller's `known_hosts` (`a
 ## Security notes
 
 - Binds to loopback by default. For access from other machines use TLS in front, for example
-  `deploy/nginx.conf.example`, and set `PANEL_SECURE_COOKIE=1`. `deploy/provisionkit-panel.service` is a hardened unit.
+  `deploy/nginx.conf.example`, and set `PANEL_SECURE_COOKIE=1`. `scripts/install_panel.sh` installs a hardened unit.
 - Remote access through a Cloudflare tunnel with Access token verification: see [../docs/cloudflare-tunnel.md](../docs/cloudflare-tunnel.md).
 - Password hashes (scrypt), 12 character minimum, per-user and per-IP lockout, CSRF tokens on every POST, session
   reset on sign-in, strict Content-Security-Policy (no inline script or style), no secrets shown in the UI.
 - Job targets are checked against the inventory and passed to Ansible as an argument list, never through a shell.
 - Whoever can sign in as admin can edit the inventory, and operators can make the controller run read-only playbooks
   against your servers. Treat the panel account like SSH access to the controller.
-- The panel process needs read access to the deploy key that `provisionkit_deploy_key_file` points to.
+- The service runs as the controller account that holds the deploy key, because the panel starts `ansible-playbook` as that
+  user. A dedicated account is tighter but needs the key's permissions and `known_hosts` set up for it.
 
 ## Status
 
