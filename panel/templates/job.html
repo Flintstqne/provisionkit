@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Job #{{ job.id }}{% endblock %}
+{% block crumbs %}Operations / <a href="{{ url_for('main.jobs_list') }}">Jobs</a> / #{{ job.id }}{% endblock %}
+{% block content %}
+{% set live = job.status in ('queued', 'running') %}
+<div class="page-head"><div><h1>Job #{{ job.id }} <span id="job-status" {% if live %}data-live="1"{% endif %}>{{ pill(job.status) }}</span></h1>
+  <p>{{ kinds[job.kind].label if job.kind in kinds else job.kind }} on <span class="mono">{{ job.target }}</span>, started by {{ job.user }} {{ ago(job.created) }}.</p></div></div>
+{% if hosts %}<section class="card"><header><h2>Results by host</h2></header><div class="table-wrap"><table><thead><tr><th>Host</th><th>Result</th><th class="num">OK tasks</th><th>Detail</th></tr></thead><tbody>
+{% for h in hosts %}<tr><td><a href="{{ url_for('main.device', name=h.host) }}">{{ h.host }}</a></td><td>{{ pill('Offline' if h.unreachable else 'fail' if h.failed else 'pass') }}</td><td class="num">{{ h.ok }}</td><td class="mono">{{ h.message }}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
+<section class="gap-top"><h2>Output</h2><pre class="log" id="job-log" data-url="{{ url_for('main.job_log', job_id=job.id) }}" tabindex="0">Loading...</pre></section>
+{% endblock %}

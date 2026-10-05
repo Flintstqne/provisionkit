@@ -20,4 +20,6 @@ Not done: Fail2Ban, sysctl profiles, Docker, monitoring, K3s, a second node. The
 make check   # syntax checks, yamllint, inventory validator self-test
 ```
 
+`panel/` is a small web console for the controller (inventory, device data, compliance, read-only jobs). See [panel/README.md](panel/README.md).
+
 Real addresses/keys/Vault go in `inventories/local/` (git-ignored).

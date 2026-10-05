@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Compliance{% endblock %}
+{% block crumbs %}Infrastructure / Compliance{% endblock %}
+{% block content %}
+{% set short = {'ssh_password_auth': 'SSH passwords off', 'ssh_root_login': 'SSH root off', 'ntp_sync': 'Time sync', 'auditd': 'Auditd', 'security_updates': 'Security updates', 'firewall': 'Firewall'} %}
+<div class="page-head"><div><h1>Compliance</h1><p>Baseline posture of every collected device. Results come from read-only checks.</p></div></div>
+<div class="grid kpis">
+  <div class="card kpi"><div class="label">Compliant devices</div><div class="value">{{ s.compliant }} / {{ s.scanned }}</div></div>
+  <div class="card kpi"><div class="label">Open findings</div><div class="value">{{ s.findings }}</div></div>
+  <div class="card kpi"><div class="label">Not scanned</div><div class="value">{{ pending|length }}</div></div>
+</div>
+<section class="card"><header><h2>Check matrix</h2></header>
+{% if devs %}<div class="table-wrap"><table class="matrix"><thead><tr><th>Device</th>{% for id, t in titles %}<th title="{{ t }}">{{ short.get(id, t) }}</th>{% endfor %}<th>Score</th></tr></thead><tbody>
+{% for d in devs %}{% set by = {} %}{% for c in d.checks %}{% if by.update({c.id: c.state}) %}{% endif %}{% endfor %}
+<tr><td><a href="{{ url_for('main.device', name=d.name, tab='compliance') }}">{{ d.name }}</a></td>
+  {% for id, t in titles %}{% set st = by.get(id, 'na') %}<td><span class="sym {{ st }}" title="{{ t }}: {{ st }}">{{ {'pass': 'Pass', 'fail': 'Fail', 'na': 'N/A'}[st] }}</span></td>{% endfor %}
+  <td>{{ d.checks_passed }}/{{ d.checks_total }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No data collected yet.</div>{% endif %}</section>
+{% if s.failing %}<section class="card gap-top"><header><h2>Findings by check</h2></header><table><tbody>
+{% for title, hosts in s.failing %}<tr><td>{{ title }}</td><td>{% for h in hosts %}<a class="tag" href="{{ url_for('main.device', name=h, tab='compliance') }}">{{ h }}</a>{% endfor %}</td></tr>{% endfor %}
+</tbody></table></section>{% endif %}
+{% if pending %}<p class="muted">Not scanned yet: {% for d in pending %}<a href="{{ url_for('main.device', name=d.name) }}">{{ d.name }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+{% endblock %}

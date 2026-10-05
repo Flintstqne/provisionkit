@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Add device{% endblock %}
+{% block crumbs %}Infrastructure / <a href="{{ url_for('main.devices') }}">Devices</a> / Add{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Add device</h1><p>Registers a server in the inventory. It does not connect to the server or change it.</p></div></div>
+{% if not inv.writable %}<div class="flash error">The inventory is read-only. Run <span class="mono">python -m panel init-inventory</span> on the controller to create <span class="mono">inventories/local</span>, then restart the panel.</div>{% endif %}
+<section class="card"><div class="body">
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="field"><label for="name">Hostname</label><input id="name" name="name" type="text" value="{{ form.name }}" required maxlength="63" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" autocomplete="off">
+    <div class="hint">Inventory name. Lowercase letters, digits and hyphens. Must match the server's hostname for validation to pass.</div></div>
+  <div class="field"><label for="address">Address</label><input id="address" name="address" type="text" value="{{ form.address }}" required maxlength="253" autocomplete="off">
+    <div class="hint">IP address or DNS name the controller uses for SSH (stored as <span class="mono">ansible_host</span>).</div></div>
+  <fieldset class="field checks"><legend>Groups</legend>
+    {% for g_ in groups %}<label><input type="checkbox" name="groups" value="{{ g_ }}" {{ 'checked' if g_ in form.groups }}> <span><span class="mono">{{ g_ }}</span> <small>{{ group_info.get(g_, '') }}</small></span></label>{% endfor %}
+    <div class="hint">Group membership decides which roles and playbooks apply to the device.</div></fieldset>
+  <div class="actions"><button class="btn primary" {{ 'disabled' if not inv.writable }}>Add to inventory</button><a class="btn" href="{{ url_for('main.devices') }}">Cancel</a></div>
+</form></div></section>
+<section class="card"><header><h2>After adding</h2></header><div class="body">
+  <ol>
+    <li>Bootstrap the new server from the controller (needs your initial admin access): <span class="mono">ansible-playbook playbooks/bootstrap.yml --limit NAME</span></li>
+    <li>Add its SSH host key to the controller's <span class="mono">known_hosts</span> (host key checking is on).</li>
+    <li>Open the device and run <b>Collect data</b> to load its configuration.</li>
+  </ol></div></section>
+{% endblock %}

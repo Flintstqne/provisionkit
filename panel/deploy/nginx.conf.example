@@ -1,0 +1,12 @@
+# TLS terminates here; the panel only listens on 127.0.0.1:8080.
+server {
+    listen 443 ssl;
+    server_name panel.lab.example;
+    ssl_certificate     /etc/ssl/panel.crt;
+    ssl_certificate_key /etc/ssl/panel.key;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

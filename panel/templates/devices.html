@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill, bar %}
+{% block title %}Devices{% endblock %}
+{% block crumbs %}Infrastructure / Devices{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Devices</h1><p>{{ total }} devices in the inventory.</p></div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('main.devices_csv') }}">Export CSV</a>
+    {% if g.user['role'] == 'admin' %}<a class="btn primary" href="{{ url_for('main.device_new') }}">Add device</a>{% endif %}
+  </div>
+</div>
+<section class="card">
+  <form class="toolbar" method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search name, address or OS" aria-label="Search devices">
+    <select name="group" aria-label="Group"><option value="">All groups</option>{% for g_ in groups %}<option {{ 'selected' if g_ == group }}>{{ g_ }}</option>{% endfor %}</select>
+    <select name="status" aria-label="Status"><option value="">Any status</option>{% for s in ('Online','Stale','Offline','Pending') %}<option {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}</select>
+    <button class="btn">Filter</button>{% if q or group or status %}<a href="{{ url_for('main.devices') }}">Clear</a>{% endif %}
+  </form>
+  <div class="table-wrap"><table data-sortable>
+    <thead><tr><th data-sort>Device</th><th data-sort>Address</th><th>Groups</th><th data-sort>Status</th><th data-sort>Compliance</th><th data-sort>OS</th><th data-sort>CPU / RAM</th><th>Memory use</th><th data-sort>Last collected</th></tr></thead>
+    <tbody>
+    {% for d in devices %}<tr>
+      <td><a href="{{ url_for('main.device', name=d.name) }}"><b>{{ d.name }}</b></a>{% if d.reboot %} <span class="tag">reboot</span>{% endif %}</td>
+      <td class="mono">{{ d.address or '-' }}</td>
+      <td>{% for g_ in d.groups %}<span class="tag">{{ g_ }}</span>{% endfor %}</td>
+      <td>{{ pill(d.status) }}</td>
+      <td data-v="{{ d.compliance }}">{{ pill(d.compliance) }}{% if d.checks_total %} <span class="muted">{{ d.checks_passed }}/{{ d.checks_total }}</span>{% endif %}</td>
+      <td>{{ d.os or '-' }}</td>
+      <td data-v="{{ d.cpus }}">{% if d.snapshot %}{{ d.cpus }} vCPU / {{ (d.mem_mb / 1024)|round(1) }} GB{% else %}-{% endif %}</td>
+      <td class="membar">{% if d.mem_used_pct is not none %}{{ bar(d.mem_used_pct, 'bad' if d.mem_used_pct > 90 else 'warn' if d.mem_used_pct > 75 else '') }}{% endif %}</td>
+      <td class="muted" data-v="{{ d.collected or 0 }}">{{ ago(d.collected) }}</td>
+    </tr>{% else %}<tr><td colspan="9" class="empty">No devices match.</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+{% endblock %}

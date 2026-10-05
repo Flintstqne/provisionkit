@@ -1,0 +1,51 @@
+{% from "_macros.html" import icon %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ title|default('Console') }}{% endblock %} | ProvisionKit Control Center</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><b>ProvisionKit</b><span>Control Center</span></div>
+    <nav class="nav" aria-label="Main">
+      {% macro item(endpoint, key, label, ic, role=None) %}
+        {% if g.user and (not role or g.user['role'] in role) %}<a href="{{ url_for(endpoint) }}" {% if page == key %}aria-current="page"{% endif %}>{{ icon(ic) }}{{ label }}</a>{% endif %}
+      {% endmacro %}
+      <h3>Overview</h3>
+      {{ item('main.index', 'dashboard', 'Dashboard', 'grid') }}
+      <h3>Infrastructure</h3>
+      {{ item('main.devices', 'devices', 'Devices', 'server') }}
+      {{ item('main.groups', 'groups', 'Groups', 'layers') }}
+      {{ item('main.compliance', 'compliance', 'Compliance', 'shield') }}
+      <h3>Operations</h3>
+      {{ item('main.jobs_list', 'jobs', 'Jobs', 'play') }}
+      {{ item('main.audit_log', 'audit', 'Audit log', 'list', ('operator','admin')) }}
+      {{ item('main.settings', 'settings', 'Settings', 'gear', ('admin',)) }}
+    </nav>
+    <footer>Inventory: <span class="mono">{{ inv.dir.parent.name }}/{{ inv.dir.name }}</span><br>{% if inv.is_example %}Read-only example{% elif inv.writable %}Read / write{% else %}Read-only{% endif %}</footer>
+  </aside>
+  <div class="main">
+    {% if demo %}<div class="banner" role="status">Demo mode: all data is synthetic and jobs are simulated.</div>{% endif %}
+    <header class="topbar">
+      <div class="grow"><div class="crumbs">{% block crumbs %}Console{% endblock %}</div></div>
+      {% if env_name %}<span class="tag">Environment: {{ env_name }}</span>{% endif %}
+      {% if g.user %}<div class="user">
+        <span class="avatar" aria-hidden="true">{{ g.user['username'][:1]|upper }}</span>
+        <span>{{ g.user['username'] }} <span class="muted">({{ g.user['role'] }})</span></span>
+        <form class="inline" method="post" action="{{ url_for('main.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm">Sign out</button></form>
+      </div>{% endif %}
+    </header>
+    <main class="content">
+      {% with messages = get_flashed_messages(with_categories=true) %}{% for cat, m in messages %}<div class="flash {{ cat }}" role="status">{{ m }}</div>{% endfor %}{% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

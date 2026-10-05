@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Jobs{% endblock %}
+{% block crumbs %}Operations / Jobs{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Jobs</h1><p>Read-only playbook runs started from the panel. One job runs at a time.</p></div></div>
+{% if g.user['role'] != 'viewer' %}
+<section class="card"><header><h2>Run a job</h2></header><div class="body">
+<form method="post" class="actions">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="muted" for="kind">Job</label><select id="kind" name="kind">{% for k, v in kinds.items() %}<option value="{{ k }}">{{ v.label }}</option>{% endfor %}</select>
+  <label class="muted" for="target">Target</label><select id="target" name="target">{% for t in targets %}<option>{{ t }}</option>{% endfor %}</select>
+  <button class="btn primary">Run</button>
+</form></div></section>
+{% endif %}
+<section class="card gap-top"><header><h2>History</h2></header>
+{% if jobs %}<div class="table-wrap"><table><thead><tr><th>ID</th><th>Job</th><th>Target</th><th>Status</th><th>Started by</th><th>Created</th><th class="num">Duration</th></tr></thead><tbody>
+{% for j in jobs %}<tr><td><a href="{{ url_for('main.job', job_id=j.id) }}">#{{ j.id }}</a></td><td>{{ kinds[j.kind].label if j.kind in kinds else j.kind }}</td><td class="mono">{{ j.target }}</td><td>{{ pill(j.status) }}</td><td>{{ j.user }}</td><td class="muted">{{ ago(j.created) }}</td>
+<td class="num">{% if j.finished and j.started %}{{ (j.finished - j.started)|round|int }}s{% else %}-{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No jobs have run.</div>{% endif %}</section>
+{% endblock %}
