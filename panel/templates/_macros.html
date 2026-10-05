@@ -19,3 +19,15 @@
  'gear': '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
  'plus': '<path d="M12 5v14M5 12h14"/>'}[name]|safe }}</svg>
 {%- endmacro %}
+
+{% macro value(v) -%}
+{%- if v is mapping -%}
+<dl class="props sub">{% for k, x in v.items() %}<dt class="mono">{{ k }}</dt><dd>{{ value(x) }}</dd>{% endfor %}</dl>
+{%- elif v is sameas true -%}<span class="mono">true</span>
+{%- elif v is sameas false -%}<span class="mono">false</span>
+{%- elif v is none -%}<span class="mono">-</span>
+{%- elif v is string -%}<span class="mono"{% if v|length > 60 %} title="{{ v }}"{% endif %}>{{ v }}</span>
+{%- elif v is iterable -%}{% for x in v %}{% if x is mapping or (x is iterable and x is not string) %}{{ value(x) }}{% else %}<span class="tag">{{ x }}</span>{% endif %}{% endfor %}
+{%- else -%}<span class="mono">{{ v }}</span>
+{%- endif -%}
+{%- endmacro %}

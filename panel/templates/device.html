@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pill, bar %}
+{% from "_macros.html" import pill, bar, value %}
 {% block title %}{{ d.name }}{% endblock %}
 {% block crumbs %}Infrastructure / <a href="{{ url_for('main.devices') }}">Devices</a> / {{ d.name }}{% endblock %}
 {% block content %}
@@ -111,9 +111,9 @@
   <section class="card"><header><h2>Inventory entry</h2></header><dl class="props">
     <dt>Name</dt><dd class="mono">{{ d.name }}</dd><dt>ansible_host</dt><dd class="mono">{{ d.address or '-' }}</dd>
     <dt>Groups</dt><dd>{% for g_ in d.groups %}<span class="tag">{{ g_ }}</span>{% endfor %}</dd>
-    {% for k, v in d.vars.items() %}<dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>{% endfor %}</dl></section>
+    {% for k, v in d.vars.items() %}<dt class="mono">{{ k }}</dt><dd>{{ value(v) }}</dd>{% endfor %}</dl></section>
   <section class="card"><header><h2>Inherited variables (group_vars/all)</h2></header><dl class="props">
-    {% for k, v in inv.group_vars().items() %}<dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>{% endfor %}</dl></section>
+    {% for k, v in inv.group_vars().items() %}<dt class="mono">{{ k }}</dt><dd>{{ value(v) }}</dd>{% endfor %}</dl></section>
 </div>
 
 {% elif tab == 'activity' %}
