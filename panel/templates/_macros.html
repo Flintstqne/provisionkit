@@ -1,6 +1,6 @@
 {% macro pill(text) -%}
 {% set cls = {'Online':'ok','Compliant':'ok','success':'ok','pass':'ok','Stale':'warn','running':'warn','queued':'idle',
-  'Offline':'bad','Non-compliant':'bad','failed':'bad','fail':'bad','Pending':'idle','Controller':'idle','N/A':'idle','Unknown':'idle','na':'idle'}.get(text, 'idle') -%}
+  'Offline':'bad','Non-compliant':'bad','failed':'bad','fail':'bad','Pending':'idle','Controller':'idle','Current':'ok','Behind':'warn','No manifest':'idle','Unknown commit':'warn','Uncommitted':'warn','Unreadable':'bad','N/A':'idle','Unknown':'idle','na':'idle'}.get(text, 'idle') -%}
 <span class="pill {{ cls }}">{{ {'na': 'N/A', 'pass': 'Pass', 'fail': 'Fail'}.get(text, text|capitalize if text in ('success','failed','running','queued') else text) }}</span>
 {%- endmacro %}
 

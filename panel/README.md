@@ -9,6 +9,7 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 | ![Dashboard](../docs/panel/dashboard.png) | ![Devices](../docs/panel/devices.png) |
 | ![Device](../docs/panel/device.png) | ![Compliance](../docs/panel/compliance.png) |
 | ![Guided setup](../docs/panel/setup.png) | ![Settings](../docs/panel/settings.png) |
+| ![Config drift](../docs/panel/drift.png) | |
 
 ## What it does
 
@@ -25,6 +26,11 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 - **Add and remove devices**: writes the Ansible inventory (`inventories/local/hosts.yml`). Comments are kept, the
   change is validated by `scripts/validate_inventory.py` before it is saved, and the previous file is backed up
   to `.backups/`. Adding a device never connects to it.
+- **Config drift**: the baseline manifest role records which git commit configured each node. The panel reads it during
+  collection and compares it with the controller's checkout. A node is Behind only when roles or the baseline playbook
+  changed since, so panel and CLI updates do not flag every node. Other states: Current, No manifest, Uncommitted
+  (configured from a dirty checkout), Unknown commit, Unreadable. The inventory is git-ignored, so changes to
+  `group_vars` are not detected.
 - **Compliance**: matrix of posture checks per device (SSH password login, root login, time sync, auditd rules,
   security-only updates, firewall).
 - **Jobs**: run `collect`, `validate` or `preflight` against all hosts, a group or one host. Live output, per-host

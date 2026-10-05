@@ -156,3 +156,4 @@ td:first-child { white-space: nowrap; }
 .cmd { display: flex; gap: 8px; align-items: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
 .cmd code { flex: 1; overflow-wrap: anywhere; user-select: all; }
 dl.props dd { overflow-wrap: anywhere; }
+@media (max-width: 1560px) { .hide-narrow { display: none; } }

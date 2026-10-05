@@ -6,7 +6,7 @@ import time
 from flask import (Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session,
                    url_for)
 
-from . import auth, fleet, jobs, scheduler, setup
+from . import auth, drift, fleet, jobs, scheduler, setup
 from .db import audit, get_db
 from .inventory import NO_ADD, InventoryError
 
@@ -25,7 +25,8 @@ def _stale_after():
 
 
 def _devices():
-    return fleet.devices(_inv(), get_db(), _stale_after())
+    root = current_app.config["ROOT"]
+    return fleet.devices(_inv(), get_db(), _stale_after(), lambda manifest: drift.classify(manifest, root))
 
 
 def _ssh_port(d):
@@ -74,7 +75,7 @@ def index():
     recent = db.execute("SELECT * FROM audit ORDER BY id DESC LIMIT 8").fetchall()
     running = db.execute("SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY id DESC").fetchall()
     attention = [d for d in devs.values() if d["status"] in ("Offline", "Stale") or d["compliance"] == "Non-compliant"
-                 or d["reboot"]]
+                 or d["reboot"] or (d["drift"] and d["drift"]["state"] in drift.ATTENTION)]
     return render_template("dashboard.html", s=fleet.summary(devs), recent=recent, running=running,
                            attention=attention, page="dashboard")
 
@@ -370,14 +371,16 @@ def user_toggle(uid):
 def api_devices():
     keep = ("name", "address", "groups", "status", "compliance", "os", "kernel", "arch", "cpus", "mem_mb", "uptime_s",
             "reboot", "checks_passed", "checks_total")
-    return jsonify([{k: d[k] for k in keep} for d in _devices().values()])
+    return jsonify([dict({k: d[k] for k in keep}, config=d["drift"]["state"] if d["drift"] else None)
+                    for d in _devices().values()])
 
 
 @bp.get("/api/v1/summary")
 @auth.require()
 def api_summary():
     s = fleet.summary(_devices())
-    return jsonify({k: s[k] for k in ("total", "status", "compliant", "scanned", "reboot", "findings", "compliance_pct")})
+    return jsonify({k: s[k] for k in ("total", "status", "compliant", "scanned", "reboot", "findings", "compliance_pct",
+                                      "drift")})
 
 
 @bp.get("/healthz")
