@@ -38,6 +38,12 @@
         group: root
         mode: "0700"
 
+    - name: Clear any stale rollback timer
+      ansible.builtin.systemd:
+        name: pk-ssh-rollback.timer
+        state: stopped
+      failed_when: false
+
     - name: Arm rollback timer
       ansible.builtin.command: >-
         systemd-run --unit=pk-ssh-rollback --on-active={{ ssh_hardening_rollback_minutes }}m
@@ -108,6 +114,12 @@
     - name: Roll back SSH policy now
       ansible.builtin.command: /usr/local/sbin/provisionkit-ssh-rollback
       changed_when: true
+
+    - name: Cancel rollback timer
+      ansible.builtin.systemd:
+        name: pk-ssh-rollback.timer
+        state: stopped
+      failed_when: false
 
     - name: Fail the host
       ansible.builtin.fail:
