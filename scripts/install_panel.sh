@@ -90,6 +90,10 @@ print(sqlite3.connect(p).execute('select count(*) from users').fetchone()[0] if 
   fi
 fi
 
+step "Command line tool"
+ln -sf "$REPO/scripts/provisionkit" /usr/local/bin/provisionkit
+echo "Installed /usr/local/bin/provisionkit. Update later with: provisionkit update"
+
 if [ "$NO_SYSTEMD" = 1 ]; then
   step "Skipped the service (--no-systemd). Unit that would be installed:"
   render_unit
