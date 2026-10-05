@@ -37,6 +37,8 @@ def validate(inv_dir, example=False):
     for s in src:
         if ipaddress.ip_network(s, strict=False).prefixlen == 0:
             errs.append(f"provisionkit_management_sources contains {s}")
+    if not any(u.get("ssh_keys") for u in gv.get("provisionkit_admin_users") or []):
+        errs.append("provisionkit_admin_users has no SSH key")
     return errs
 
 
