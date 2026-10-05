@@ -13,3 +13,4 @@
     - base_system
     - users
     - ssh_hardening
+    - firewall

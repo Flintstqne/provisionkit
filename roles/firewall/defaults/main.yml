@@ -1,0 +1,5 @@
+---
+firewall_state_dir: /var/lib/provisionkit/firewall
+firewall_rollback_minutes: 10
+# A closed TCP port on the node, probed from the controller: a dropped packet times out, a refusal means no firewall.
+firewall_probe_port: 8080

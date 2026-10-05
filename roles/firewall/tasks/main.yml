@@ -1,0 +1,134 @@
+---
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Read previously applied owned sources
+  ansible.builtin.slurp:
+    src: "{{ firewall_state_dir }}/sources.json"
+  register: firewall_prev
+  failed_when: false
+
+- name: Read ufw status
+  ansible.builtin.command: ufw status
+  register: firewall_status
+  changed_when: false
+
+- name: Work out what changes
+  ansible.builtin.set_fact:
+    firewall_desired: "{{ provisionkit_management_sources | sort }}"
+    firewall_previous: "{{ firewall_prev.content | default('W10=') | b64decode | from_json }}"
+
+- name: Compute drift
+  ansible.builtin.set_fact:
+    firewall_stale: "{{ firewall_previous | difference(firewall_desired) }}"
+    firewall_needs_apply: >-
+      {{ firewall_previous != firewall_desired or 'Status: active' not in firewall_status.stdout }}
+
+- name: Apply firewall with timed rollback
+  when: firewall_needs_apply | bool
+  block:
+    - name: Create state directory
+      ansible.builtin.file:
+        path: "{{ firewall_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    # ponytail: rollback disables ufw (rules stay saved); a restore of the previous ruleset needs a tested snapshot
+    - name: Install rollback script
+      ansible.builtin.copy:
+        dest: /usr/local/sbin/provisionkit-fw-rollback
+        content: "#!/bin/sh\nufw disable\n"
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Clear any stale rollback timer
+      ansible.builtin.systemd:
+        name: pk-fw-rollback.timer
+        state: stopped
+      failed_when: false
+
+    - name: Arm rollback timer
+      ansible.builtin.command: >-
+        systemd-run --unit=pk-fw-rollback --on-active={{ firewall_rollback_minutes }}m
+        /usr/local/sbin/provisionkit-fw-rollback
+      changed_when: true
+
+    - name: Allow management sources to SSH (before any deny policy)
+      ansible.builtin.command: >-
+        ufw allow from {{ item }} to any port {{ provisionkit_ssh_port }} proto tcp comment 'provisionkit:ssh'
+      loop: "{{ firewall_desired }}"
+      register: firewall_allow
+      changed_when: "'Rule added' in firewall_allow.stdout"
+
+    - name: Remove owned rules no longer declared
+      ansible.builtin.command: >-
+        ufw --force delete allow from {{ item }} to any port {{ provisionkit_ssh_port }} proto tcp
+      loop: "{{ firewall_stale }}"
+      changed_when: true
+
+    - name: Set default policies
+      ansible.builtin.command: "ufw default {{ item }}"
+      loop: ["deny incoming", "allow outgoing", "deny routed"]
+      changed_when: true
+
+    - name: Enable ufw
+      ansible.builtin.command: ufw --force enable
+      changed_when: true
+
+    - name: Fresh login as the deployment account works
+      ansible.builtin.command: >-
+        ssh -o BatchMode=yes -o ControlPath=none -o IdentitiesOnly=yes
+        -i {{ provisionkit_deploy_key_file }} {{ provisionkit_deploy_user }}@{{ ansible_host }} true
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Unlisted port is dropped, not refused
+      ansible.builtin.command: >-
+        timeout 4 bash -c 'exec 3<>/dev/tcp/{{ ansible_host }}/{{ firewall_probe_port }}'
+      delegate_to: localhost
+      become: false
+      register: firewall_probe
+      failed_when: firewall_probe.rc != 124
+      changed_when: false
+
+    - name: Confirm admin login from another device
+      ansible.builtin.pause:
+        prompt: >-
+          From your laptop run: ssh {{ provisionkit_admin_users[0].name }}@{{ ansible_host }} true
+          then press Enter. To abort, press Ctrl-C then A; the rollback fires on its own timer.
+
+    - name: Record applied sources
+      ansible.builtin.copy:
+        dest: "{{ firewall_state_dir }}/sources.json"
+        content: "{{ firewall_desired | to_json }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Disarm rollback timer
+      ansible.builtin.systemd:
+        name: pk-fw-rollback.timer
+        state: stopped
+
+  rescue:
+    - name: Roll back firewall now
+      ansible.builtin.command: /usr/local/sbin/provisionkit-fw-rollback
+      changed_when: true
+
+    - name: Cancel rollback timer
+      ansible.builtin.systemd:
+        name: pk-fw-rollback.timer
+        state: stopped
+      failed_when: false
+
+    - name: Fail the host
+      ansible.builtin.fail:
+        msg: "Firewall change failed and was rolled back"
