@@ -3,8 +3,9 @@ import secrets
 import time
 
 from flask import Flask, g, render_template, request, session
+from flask.globals import request_ctx
 
-from . import auth, fleet
+from . import auth, cfaccess, fleet
 from .config import Config, inventory_dir
 from .db import close_db, init_db
 from .inventory import GROUP_INFO, Inventory
@@ -23,6 +24,7 @@ def create_app(overrides=None):
     _recover_jobs(app)
 
     app.teardown_appcontext(close_db)
+    cfaccess.init_app(app)  # registered first, so it runs before anything touches the session or database
     app.before_request(auth.load_user)
     app.before_request(auth.check_csrf)
 
@@ -44,13 +46,19 @@ def create_app(overrides=None):
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "same-origin"
+        if app.config["SESSION_COOKIE_SECURE"]:
+            resp.headers["Strict-Transport-Security"] = "max-age=31536000"
         if request.endpoint != "static":
             resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    def error_page(e, code, title):
+        if request_ctx.url_adapter is None:  # rejected Host header: no routing, so no templates
+            return title, code, {"Content-Type": "text/plain; charset=utf-8"}
+        return render_template("error.html", code=code, title=title, message=getattr(e, "description", "")), code
+
     for code, title in ((400, "Bad request"), (403, "Access denied"), (404, "Not found"), (413, "Request too large")):
-        app.register_error_handler(code, lambda e, c=code, t=title: (render_template("error.html", code=c, title=t,
-                                   message=getattr(e, "description", "")), c))
+        app.register_error_handler(code, lambda e, c=code, t=title: error_page(e, c, t))
     return app
 
 

@@ -23,6 +23,8 @@ def _devices():
 
 
 def _log(action, target="", detail=""):
+    if getattr(g, "access_email", ""):
+        detail = f"{detail} [access: {g.access_email}]".strip()
     audit(get_db(), g.user["username"] if g.user else "-", action, target, detail, auth.client_ip())
 
 

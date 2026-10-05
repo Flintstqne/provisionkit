@@ -25,4 +25,9 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("PANEL_SECURE_COOKIE") == "1"  # set when served over HTTPS
     PERMANENT_SESSION_LIFETIME = 8 * 3600
+    # Behind a local reverse proxy or cloudflared. See docs/cloudflare-tunnel.md.
+    TRUST_CF_IP = os.environ.get("PANEL_TRUST_CF_IP") == "1"  # read CF-Connecting-IP, only from a loopback peer
+    CF_ACCESS_TEAM = os.environ.get("PANEL_CF_ACCESS_TEAM", "")  # Cloudflare Zero Trust team name
+    CF_ACCESS_AUD = os.environ.get("PANEL_CF_ACCESS_AUD", "")  # Access application audience tag
+    TRUSTED_HOSTS = [h for h in os.environ.get("PANEL_ALLOWED_HOSTS", "").split(",") if h] or None
     MAX_CONTENT_LENGTH = 64 * 1024

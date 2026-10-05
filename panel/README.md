@@ -53,6 +53,7 @@ command line first, and their SSH host key in the controller's `known_hosts` (`a
 
 - Binds to loopback by default. For access from other machines use TLS in front, for example
   `deploy/nginx.conf.example`, and set `PANEL_SECURE_COOKIE=1`. `deploy/provisionkit-panel.service` is a hardened unit.
+- Remote access through a Cloudflare tunnel with Access token verification: see [../docs/cloudflare-tunnel.md](../docs/cloudflare-tunnel.md).
 - Password hashes (scrypt), 12 character minimum, per-user and per-IP lockout, CSRF tokens on every POST, session
   reset on sign-in, strict Content-Security-Policy (no inline script or style), no secrets shown in the UI.
 - Job targets are checked against the inventory and passed to Ansible as an argument list, never through a shell.
@@ -62,7 +63,7 @@ command line first, and their SSH host key in the controller's `known_hosts` (`a
 
 ## Status
 
-Tested: 24 pytest cases (auth, roles, CSRF, lockout, inventory editing and validation, job runner, fleet states,
+Tested: 42 pytest cases (auth, roles, CSRF, lockout, inventory editing and validation, job runner, fleet states,
 log parsing). `collect.yml` was run end to end through the panel's job runner against localhost with real
 `ansible-core` 2.19. **Not tested** against real remote servers, over SSH, or on the Raspberry Pi. The unreachable-host
 path is covered only by a parser test on sample output. There is no TLS, password reset or per-user history beyond the

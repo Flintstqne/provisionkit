@@ -9,7 +9,7 @@ After=network-online.target
 User=pkpanel
 WorkingDirectory=/opt/provisionkit
 Environment=PATH=/opt/provisionkit/.venv/bin:/usr/bin:/bin
-Environment=PANEL_SECURE_COOKIE=1
+EnvironmentFile=-/etc/provisionkit-panel.env
 ExecStart=/opt/provisionkit/.venv/bin/python -m panel run --host 127.0.0.1 --port 8080
 Restart=on-failure
 NoNewPrivileges=true

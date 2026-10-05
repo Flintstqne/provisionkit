@@ -1,10 +1,11 @@
 """Sessions, roles, CSRF protection and login throttling."""
 import functools
 import hmac
+import ipaddress
 import secrets
 import time
 
-from flask import abort, g, redirect, request, session, url_for
+from flask import abort, current_app, g, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import audit, get_db
@@ -24,7 +25,16 @@ def hash_password(pw):
 
 
 def client_ip():
-    return request.remote_addr or "-"
+    """The caller's address. CF-Connecting-IP is honoured only when enabled and the TCP peer is loopback
+    (cloudflared on this host), because any other peer could forge the header."""
+    peer = request.remote_addr or "-"
+    if current_app.config.get("TRUST_CF_IP"):
+        try:
+            if ipaddress.ip_address(peer).is_loopback:
+                return str(ipaddress.ip_address(request.headers.get("CF-Connecting-IP", "").strip()))
+        except ValueError:
+            pass
+    return peer
 
 
 def locked_out(db, username, ip):
@@ -34,23 +44,28 @@ def locked_out(db, username, ip):
     return by_user >= MAX_FAILURES or by_ip >= MAX_FAILURES * 4
 
 
+def access_detail():
+    email = getattr(g, "access_email", "")
+    return f"access: {email}" if email else ""
+
+
 def attempt_login(username, password):
     """Return the user row on success, else None. Records failures and audits both outcomes."""
     db, ip = get_db(), client_ip()
     if locked_out(db, username, ip):
-        audit(db, username, "login.locked", ip=ip)
+        audit(db, username, "login.locked", detail=access_detail(), ip=ip)
         return None
     user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     ok = check_password_hash(user["pw_hash"] if user else _DUMMY_HASH, password) and user and user["active"]
     if not ok:
         db.execute("INSERT INTO login_attempts (username, ip, ts) VALUES (?,?,?)", (username, ip, time.time()))
         db.commit()
-        audit(db, username, "login.failed", ip=ip)
+        audit(db, username, "login.failed", detail=access_detail(), ip=ip)
         return None
     db.execute("DELETE FROM login_attempts WHERE username=?", (username,))
     db.execute("UPDATE users SET last_login=? WHERE id=?", (time.time(), user["id"]))
     db.commit()
-    audit(db, username, "login", ip=ip)
+    audit(db, username, "login", detail=access_detail(), ip=ip)
     return user
 
 
