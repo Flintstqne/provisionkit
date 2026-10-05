@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install ProvisionKit Control Center on the controller as a systemd service. Safe to run again.
 #   sudo scripts/install_panel.sh [--user NAME] [--port 8080]
-#   scripts/install_panel.sh --print-unit        # show the systemd unit it would install, change nothing
+#   scripts/install_panel.sh --print-unit [NAME] # show a unit it would install, change nothing. NAME is one of:
+#                                                panel (default), update, update-path, check, check-timer
 #   sudo scripts/install_panel.sh --no-systemd   # everything except the service (used for testing)
 # --user is the controller account that holds the deploy key and known_hosts. Default: the user who ran sudo.
 set -euo pipefail
@@ -10,6 +11,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_USER="${SUDO_USER:-}"
 PORT=8080
 PRINT_UNIT=0
+UNIT_NAME=panel
 NO_SYSTEMD=0
 SKIP_USER=0
 
@@ -17,7 +19,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --user) RUN_USER="${2:?--user needs a name}"; shift 2 ;;
     --port) PORT="${2:?--port needs a number}"; shift 2 ;;
-    --print-unit) PRINT_UNIT=1; shift ;;
+    --print-unit)
+      PRINT_UNIT=1; shift
+      case "${1:-}" in panel | update | update-path | check | check-timer) UNIT_NAME="$1"; shift ;; esac ;;
     --no-systemd) NO_SYSTEMD=1; shift ;;
     --skip-admin) SKIP_USER=1; shift ;;
     -h | --help) sed -n '2,6p' "$0"; exit 0 ;;
@@ -29,17 +33,27 @@ case "$PORT" in '' | *[!0-9]*) echo "Port must be a number." >&2; exit 2 ;; esac
 
 home_of() { getent passwd "$1" | cut -d: -f6 || true; }
 
+unit_file() {
+  case "$1" in
+    panel) echo provisionkit-panel.service ;;
+    update) echo provisionkit-update.service ;;
+    update-path) echo provisionkit-update.path ;;
+    check) echo provisionkit-update-check.service ;;
+    check-timer) echo provisionkit-update-check.timer ;;
+  esac
+}
+
 render_unit() {
-  local home_dir
+  local home_dir template="${1:-panel}"
   home_dir="$(home_of "$RUN_USER")"
   sed -e "s|@RUN_USER@|$RUN_USER|g" -e "s|@REPO@|$REPO|g" -e "s|@PORT@|$PORT|g" \
     -e "s|@HOME_DIR@|${home_dir:-/home/$RUN_USER}|g" \
-    "$REPO/panel/deploy/provisionkit-panel.service"
+    "$REPO/panel/deploy/$(unit_file "$template")"
 }
 
 if [ "$PRINT_UNIT" = 1 ]; then
   RUN_USER="${RUN_USER:-controller-user}"
-  render_unit
+  render_unit "$UNIT_NAME"
   exit 0
 fi
 
@@ -96,7 +110,7 @@ echo "Update later with: provisionkit update"
 
 if [ "$NO_SYSTEMD" = 1 ]; then
   step "Skipped the service (--no-systemd). Unit that would be installed:"
-  render_unit
+  render_unit panel
   exit 0
 fi
 
@@ -116,10 +130,21 @@ else
 ENV
 fi
 
+step "Update button (request directory, status directory, updater units)"
+# The panel may only create a file here. The updater runs as root and writes to the status directory, which only root can
+# write, so the panel can read progress but can never make root follow a link it planted.
+install -d -m 0700 -o "$RUN_USER" -g "$RUN_USER" /var/lib/provisionkit-requests
+install -d -m 0755 -o root -g root /var/lib/provisionkit-update
+render_unit update > /etc/systemd/system/provisionkit-update.service
+render_unit update-path > /etc/systemd/system/provisionkit-update.path
+render_unit check > /etc/systemd/system/provisionkit-update-check.service
+render_unit check-timer > /etc/systemd/system/provisionkit-update-check.timer
+
 step "systemd service"
-render_unit > /etc/systemd/system/provisionkit-panel.service
+render_unit panel > /etc/systemd/system/provisionkit-panel.service
 systemctl daemon-reload
 systemctl enable provisionkit-panel.service
+systemctl enable --now provisionkit-update.path provisionkit-update-check.timer
 systemctl restart provisionkit-panel.service
 
 for _ in $(seq 1 20); do

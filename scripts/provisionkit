@@ -3,6 +3,7 @@
 
   provisionkit update     pull the latest main from GitHub, then make sure everything works
   provisionkit check      run the health checks without changing anything
+  provisionkit check-updates   fetch from GitHub and record whether an update is waiting (the panel's timer runs this)
   provisionkit baseline H apply the hardening baseline to one node: dry run, confirmation, apply, then validate
   provisionkit nightly-reboot enable|disable|status   nightly reboot of this controller (nodes use the baseline role)
   provisionkit status     show the version, whether an update is waiting, and the panel state
@@ -15,6 +16,8 @@ import argparse
 import ipaddress
 import json
 import os
+import tempfile
+import time
 import pwd
 import re
 import shutil
@@ -26,7 +29,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent  # follows the /usr/local/bin symlink back into the checkout
 REMOTE, BRANCH = "origin", "main"
-UNIT = Path("/etc/systemd/system/provisionkit-panel.service")
+UNIT_DIR = Path("/etc/systemd/system")
+UNIT = UNIT_DIR / "provisionkit-panel.service"
+# installer name -> installed file, for every unit install_panel.sh manages
+MANAGED_UNITS = {"panel": "provisionkit-panel.service", "update": "provisionkit-update.service",
+                 "update-path": "provisionkit-update.path", "check": "provisionkit-update-check.service",
+                 "check-timer": "provisionkit-update-check.timer"}
 LINK = Path("/usr/local/bin/provisionkit")
 SERVICE = "provisionkit-panel.service"
 ENV_MODULES = "import flask, ruamel.yaml, waitress, jwt, ansible"
@@ -67,6 +75,23 @@ class Failure(Exception):
     pass
 
 
+class StatusFile:
+    """Progress of an update as JSON, for the panel's Update button. Written atomically, by root, into a directory
+    only root can write, so a lower-privileged process can read it but never plant a symlink for root to follow."""
+
+    def __init__(self, directory, name="status.json"):
+        self.dir, self.path, self.data = Path(directory), Path(directory) / name, {}
+
+    def write(self, **fields):
+        self.data.update(fields, updated=time.time())
+        self.dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=self.dir, prefix=".status-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(self.data, f)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, self.path)
+
+
 class Result:
     """One health check outcome: ok, warn or fail."""
     def __init__(self, level, name, detail=""):
@@ -82,6 +107,11 @@ class Kit:
         self.out = out
         self.owner = pwd.getpwuid(self.repo.stat().st_uid).pw_name
         self.py = self.repo / ".venv" / "bin" / "python"
+        self.status_file = None  # set to a StatusFile to report progress to the panel
+
+    def note(self, step, **fields):
+        if self.status_file:
+            self.status_file.write(step=step, **fields)
 
     # ---- running commands as the account that owns the checkout -----------------------------------------------------
     def sh(self, cmd, check=True, root=False, timeout=600):
@@ -154,6 +184,7 @@ class Kit:
         if self.branch() != BRANCH:
             raise Failure(f"This checkout is on '{self.branch()}', not '{BRANCH}'. Run: git checkout {BRANCH}")
         self.out(f"Fetching {REMOTE}/{BRANCH} ...")
+        self.note("Fetching from GitHub")
         self.fetch()
         ahead, behind = self.ahead_behind()
         if ahead and behind:
@@ -164,6 +195,7 @@ class Kit:
             self.out(f"{behind} new commit(s):")
             self.out(self.git("log", "--oneline", "--max-count=20", f"HEAD..{REMOTE}/{BRANCH}").stdout.rstrip())
             changed = set(self.git("diff", "--name-only", f"HEAD..{REMOTE}/{BRANCH}").stdout.split())
+            self.note(f"Pulling {behind} new commit(s)", commits=behind)
             self.git("merge", "--ff-only", f"{REMOTE}/{BRANCH}")
             self.out("Updated.")
         else:
@@ -171,12 +203,15 @@ class Kit:
                      f"Nothing to pull ({ahead} local commit(s) not on GitHub yet).")
         try:
             if not skip_env:
+                self.note("Checking the Python environment")
                 self.ensure_env("panel/requirements.txt" in changed)
             if not skip_service:
+                self.note("Restarting the panel if needed")
                 self.ensure_service(changed)
         except Failure as e:
             if rollback and old != self.head():
                 self.out(f"Problem after updating: {e}\nRolling back to {old[:8]} ...")
+                self.note(f"Problem found, rolling back to {old[:8]}", rolled_back=True)
                 self.git("reset", "--hard", old)
                 try:
                     self.ensure_env(True)
@@ -185,9 +220,40 @@ class Kit:
                     raise Failure(f"Rolled back the code to {old[:8]}, but the service still has a problem: {again}") from e
                 raise Failure(f"The update failed and was rolled back to {old[:8]}: {e}") from e
             raise
+        self.note("Running health checks")
         results = self.check()
         self.report(results)
         return results
+
+    def finish_status(self, results=None, error=None):
+        """The last status line: what happened, in a sentence the panel can show as it is."""
+        if not self.status_file:
+            return
+        head = self.head()
+        fields = {"finished": time.time(), "to": head, "step": "Finished"}
+        if error:
+            self.status_file.write(state="failed", message=str(error).splitlines()[0][:300] if str(error) else "Failed",
+                                   **fields)
+            return
+        bad = [r for r in (results or []) if r.level == "fail"]
+        moved = self.status_file.data.get("from") != head
+        if bad:
+            msg = "Updated, but " + ", ".join(r.name for r in bad) + " failed its health check."
+            self.status_file.write(state="failed", message=msg[:300], **fields)
+        else:
+            self.status_file.write(state="success", message=("Updated to " + head[:8] + ".") if moved
+                                   else "Already up to date.", **fields)
+
+    def check_updates(self, directory):
+        """Fetch and record whether GitHub has something new. The panel shows a dot on the Update button from this."""
+        out = StatusFile(directory, "available.json")
+        try:
+            self.fetch()
+            ahead, behind = self.ahead_behind()
+            out.write(checked=time.time(), head=self.head(), behind=behind, ahead=ahead, error="")
+        except Failure as e:
+            out.write(checked=time.time(), error=str(e).splitlines()[0][:300])
+            raise
 
     def ensure_env(self, requirements_changed=False):
         if not self.py.exists():
@@ -201,9 +267,14 @@ class Kit:
             self.sh([self.py, "-m", "pip", "install", "--quiet", "-r", "panel/requirements.txt", "ansible-core<2.20"])
 
     def unit_is_current(self, port):
-        r = self.sh(["bash", "scripts/install_panel.sh", "--print-unit", "--user", self.owner, "--port", str(port)],
-                    check=False)
-        return r.returncode == 0 and UNIT.exists() and UNIT.read_text() == r.stdout
+        """True when every unit the installer manages is installed and matches what it would write today."""
+        for name, filename in MANAGED_UNITS.items():
+            want = self.sh(["bash", "scripts/install_panel.sh", "--print-unit", name, "--user", self.owner,
+                            "--port", str(port)], check=False)
+            installed = UNIT_DIR / filename
+            if want.returncode != 0 or not installed.exists() or installed.read_text() != want.stdout:
+                return False
+        return True
 
     def ensure_service(self, changed, force=False):
         if not self.service_installed():
@@ -514,7 +585,7 @@ def needs_root(kit, command, action=None):
     """update needs root only to restart the panel; install always does; nightly-reboot only to change things."""
     if command == "nightly-reboot":
         return action in ("enable", "disable")
-    return command == "install" or (command == "update" and kit.service_installed())
+    return command == "install" or (command in ("update", "check-updates") and kit.service_installed())
 
 
 def main(argv=None, kit=None):
@@ -524,6 +595,9 @@ def main(argv=None, kit=None):
     up.add_argument("--skip-env", action="store_true", help="do not touch the Python environment")
     up.add_argument("--skip-service", action="store_true", help="do not touch the panel service")
     up.add_argument("--no-rollback", action="store_true", help="keep the new code even if the panel fails to start")
+    up.add_argument("--status-dir", help="write progress as JSON here (used by the panel's Update button)")
+    cu = sub.add_parser("check-updates", help="fetch from GitHub and record whether an update is waiting")
+    cu.add_argument("--status-dir", required=True)
     bl = sub.add_parser("baseline", help="apply the hardening baseline to one node (dry run, confirm, apply, validate)")
     bl.add_argument("host", help="a node in workload_nodes, for example pk-worker")
     bl.add_argument("--tags", help="only these roles, comma separated (for example: firewall)")
@@ -552,8 +626,23 @@ def main(argv=None, kit=None):
     if needs_root(kit, a.command, getattr(a, "action", None)) and os.geteuid() != 0:
         os.execvp("sudo", ["sudo", str(Path(__file__).resolve()), *sys.argv[1:]])  # prompts for the sudo password
     try:
+        if a.command == "check-updates":
+            kit.check_updates(a.status_dir)
+            return 0
         if a.command == "update":
-            results = kit.update(a.skip_env, a.skip_service, rollback=not a.no_rollback)
+            if a.status_dir:
+                kit.status_file = StatusFile(a.status_dir)
+                kit.status_file.write(state="running", step="Starting", started=time.time(), finished=None,
+                                      message="", rolled_back=False, commits=0, **{"from": kit.head(), "to": None})
+            try:
+                results = kit.update(a.skip_env, a.skip_service, rollback=not a.no_rollback)
+            except Failure as e:
+                kit.finish_status(error=e)
+                raise
+            except Exception as e:  # keep the panel from showing "running" forever
+                kit.finish_status(error=f"Unexpected error: {e}")
+                raise
+            kit.finish_status(results)
             if os.geteuid() == 0 and not kit.launcher_current():
                 kit.install_link()
             return 1 if any(r.level == "fail" for r in results) else 0

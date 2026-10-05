@@ -1,0 +1,16 @@
+# Template. Runs "provisionkit update" as root when the panel's Update button creates the request file.
+# The panel itself cannot pull code, install packages or restart services (it runs in a read-only sandbox), so it only
+# asks. Output and progress go to /var/lib/provisionkit-update, a directory only root can write.
+[Unit]
+Description=ProvisionKit update, requested from the panel
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Remove the request first, so one click means one run. rm -f only unlinks the name, even if it is a symlink.
+ExecStartPre=/bin/rm -f /var/lib/provisionkit-requests/update
+ExecStart=@REPO@/scripts/provisionkit update --status-dir /var/lib/provisionkit-update
+StandardOutput=file:/var/lib/provisionkit-update/update.log
+StandardError=inherit
+TimeoutStartSec=45min
+PrivateTmp=true

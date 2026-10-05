@@ -1,0 +1,11 @@
+# Template. Checks shortly after boot, then every three hours.
+[Unit]
+Description=ProvisionKit: check GitHub for updates regularly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=3h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

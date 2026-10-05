@@ -48,7 +48,12 @@ def main(argv=None):
         from . import demo
         demo_dir = INSTANCE / "demo"
         cfg = {"DEMO": True, "DB_PATH": demo_dir / "panel.db", "SNAPSHOT_DIR": demo_dir / "snapshots",
-               "JOB_LOG_DIR": demo_dir / "jobs", "INVENTORY": demo_dir / "inventory"}
+               "JOB_LOG_DIR": demo_dir / "jobs", "INVENTORY": demo_dir / "inventory",
+               "UPDATE_REQUEST_DIR": demo_dir / "update-requests", "UPDATE_STATUS_DIR": demo_dir / "update-status"}
+        for d in (cfg["UPDATE_REQUEST_DIR"], cfg["UPDATE_STATUS_DIR"]):
+            d.mkdir(parents=True, exist_ok=True)
+        (cfg["UPDATE_STATUS_DIR"] / "available.json").write_text(
+            '{"behind": 2, "ahead": 0, "error": "", "checked": %d}' % (time.time() - 3 * 3600))
         demo_dir.mkdir(parents=True, exist_ok=True)
         app = create_app(cfg)
         demo.seed(app.config, demo_dir / "inventory")

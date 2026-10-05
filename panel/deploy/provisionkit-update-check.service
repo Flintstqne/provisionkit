@@ -1,0 +1,8 @@
+# Template. Records whether GitHub has a newer main, for the dot on the panel's Update button.
+[Unit]
+Description=ProvisionKit: check GitHub for updates
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@REPO@/scripts/provisionkit check-updates --status-dir /var/lib/provisionkit-update

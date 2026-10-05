@@ -1,0 +1,10 @@
+# Template. Starts provisionkit-update.service when the panel creates the request file.
+[Unit]
+Description=Watch for update requests from the ProvisionKit panel
+
+[Path]
+PathExists=/var/lib/provisionkit-requests/update
+Unit=provisionkit-update.service
+
+[Install]
+WantedBy=multi-user.target
