@@ -52,6 +52,11 @@
         - /var/run/reboot-required
       register: validate_stat
 
+    - name: Read baseline manifest
+      ansible.builtin.slurp:
+        src: /etc/provisionkit/baseline.json
+      register: validate_manifest_raw
+
     - name: Read unit state (no state argument, so read-only)
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -73,6 +78,18 @@
           - validate_stat.results[1].stat.pw_name == provisionkit_deploy_user
           - validate_stat.results[2].stat.isdir | default(false)
         quiet: true
+
+    - name: Assert baseline manifest matches this node
+      ansible.builtin.assert:
+        that:
+          - validate_manifest.schema_version == 1
+          - validate_manifest.node_id == inventory_hostname
+          - validate_manifest.configuration_commit | length >= 40
+          - "'-dirty' not in validate_manifest.configuration_commit"
+          - validate_manifest.expected_services | length > 0
+        quiet: true
+      vars:
+        validate_manifest: "{{ validate_manifest_raw.content | b64decode | from_json }}"
 
     - name: Assert admin accounts have sudo
       ansible.builtin.assert:

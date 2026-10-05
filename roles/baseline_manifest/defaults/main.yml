@@ -1,0 +1,16 @@
+---
+baseline_manifest_path: /etc/provisionkit/baseline.json
+baseline_manifest_release: unreleased
+baseline_manifest_services: [ssh, auditd, systemd-timesyncd]
+baseline_manifest_managed_paths:
+  - /etc/ssh/sshd_config.d/10-provisionkit.conf
+  - /etc/sudoers.d/90-provisionkit
+  - /etc/apt/apt.conf.d/52provisionkit-unattended.conf
+  - /etc/systemd/journald.conf.d/10-provisionkit.conf
+  - /etc/audit/rules.d/60-provisionkit.rules
+baseline_manifest_policy_ids:
+  - ssh-key-only
+  - ssh-no-root-login
+  - security-updates-only
+  - persistent-journal
+  - audit-core-rules

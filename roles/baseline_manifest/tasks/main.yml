@@ -1,0 +1,29 @@
+---
+- name: Read configuration commit from the controller checkout  # noqa command-instead-of-module
+  ansible.builtin.command: git -C {{ playbook_dir }} describe --always --dirty --abbrev=40
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  register: baseline_manifest_commit
+  changed_when: false
+
+- name: Write baseline manifest
+  ansible.builtin.copy:
+    dest: "{{ baseline_manifest_path }}"
+    content: "{{ baseline_manifest | to_nice_json(indent=2, sort_keys=True) }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    # The commit changes with every new reviewed commit, so the manifest changes then and only then.
+    baseline_manifest:
+      schema_version: 1
+      node_id: "{{ inventory_hostname }}"
+      baseline_release: "{{ baseline_manifest_release }}"
+      configuration_commit: "{{ baseline_manifest_commit.stdout }}"
+      configuration_profile: "{{ provisionkit_network_profile }}"
+      expected_services: "{{ baseline_manifest_services }}"
+      managed_paths: "{{ baseline_manifest_managed_paths + [baseline_manifest_path] }}"
+      policy_ids: >-
+        {{ baseline_manifest_policy_ids
+           + (['host-inbound-allowlist'] if provisionkit_firewall_applied | default(false) else []) }}
