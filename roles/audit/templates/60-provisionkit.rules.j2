@@ -1,0 +1,9 @@
+## Managed by ProvisionKit. Small rule set; not immutable (-e 2) on purpose.
+-w /etc/passwd -p wa -k provisionkit-identity
+-w /etc/group -p wa -k provisionkit-identity
+-w /etc/shadow -p wa -k provisionkit-identity
+-w /etc/sudoers -p wa -k provisionkit-sudo
+-w /etc/sudoers.d/ -p wa -k provisionkit-sudo
+-w /etc/ssh/sshd_config -p wa -k provisionkit-ssh
+-w /etc/ssh/sshd_config.d/ -p wa -k provisionkit-ssh
+-w /etc/provisionkit/ -p wa -k provisionkit-managed

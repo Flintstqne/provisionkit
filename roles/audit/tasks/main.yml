@@ -1,0 +1,47 @@
+---
+- name: Install auditd
+  ansible.builtin.apt:
+    name: auditd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure managed config directory exists
+  ansible.builtin.file:
+    path: /etc/provisionkit
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install audit rules
+  ansible.builtin.template:
+    src: 60-provisionkit.rules.j2
+    dest: /etc/audit/rules.d/60-provisionkit.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Load audit rules
+
+- name: Enable auditd
+  when: not ansible_check_mode
+  ansible.builtin.systemd:
+    name: auditd
+    state: started
+    enabled: true
+
+- name: Apply rules now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read loaded rules
+  when: not ansible_check_mode
+  ansible.builtin.command: auditctl -l
+  register: audit_loaded
+  changed_when: false
+
+- name: Assert every rule key is loaded
+  when: not ansible_check_mode
+  ansible.builtin.assert:
+    that: "item in audit_loaded.stdout"
+    fail_msg: "Audit key {{ item }} is not loaded"
+  loop: [provisionkit-identity, provisionkit-sudo, provisionkit-ssh, provisionkit-managed]
