@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0  # the config drift tests and the baseline manifest read git history
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"  # the controller's Python
           cache: pip
@@ -50,7 +50,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
