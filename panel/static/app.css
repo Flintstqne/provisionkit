@@ -79,9 +79,13 @@ tbody tr:hover { background: var(--surface-2); }
 tbody tr:last-child td { border-bottom: 0; }
 .table-wrap { overflow-x: auto; }
 .empty { padding: 32px; text-align: center; color: var(--muted); }
-dl.props { display: grid; grid-template-columns: 170px 1fr; margin: 0; }
+dl.props { display: grid; grid-template-columns: minmax(130px, max-content) minmax(0, 1fr); margin: 0; }
 dl.props dt, dl.props dd { padding: 8px 16px; border-bottom: 1px solid var(--border); margin: 0; }
-dl.props dt { color: var(--muted); }
+dl.props dt { color: var(--muted); overflow-wrap: anywhere; min-width: 0; max-width: 260px; }
+dl.props dd { min-width: 0; }
+dl.props dd .tag { margin: 0 4px 4px 0; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+dl.props dl.sub { grid-template-columns: minmax(80px, max-content) minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius); }
+dl.props dl.sub dt, dl.props dl.sub dd { padding: 4px 10px; }
 
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
