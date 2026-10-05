@@ -27,13 +27,11 @@
       {{ item('main.audit_log', 'audit', 'Audit log', 'list', ('operator','admin')) }}
       {{ item('main.settings', 'settings', 'Settings', 'gear', ('admin',)) }}
     </nav>
-    <footer>Inventory: <span class="mono">{{ inv.dir.parent.name }}/{{ inv.dir.name }}</span><br>{% if inv.is_example %}Read-only example{% elif inv.writable %}Read / write{% else %}Read-only{% endif %}</footer>
   </aside>
   <div class="main">
     {% if demo %}<div class="banner" role="status">Demo mode: all data is synthetic and jobs are simulated.</div>{% endif %}
     <header class="topbar">
       <div class="grow"><div class="crumbs">{% block crumbs %}Console{% endblock %}</div></div>
-      {% if env_name %}<span class="tag">Environment: {{ env_name }}</span>{% endif %}
       {% if g.user %}<div class="user">
         <span class="avatar" aria-hidden="true">{{ g.user['username'][:1]|upper }}</span>
         <span>{{ g.user['username'] }} <span class="muted">({{ g.user['role'] }})</span></span>

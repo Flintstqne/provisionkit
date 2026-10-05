@@ -16,10 +16,9 @@
     <div class="hint">Group membership decides which roles and playbooks apply to the device.</div></fieldset>
   <div class="actions"><button class="btn primary" {{ 'disabled' if not inv.writable }}>Add to inventory</button><a class="btn" href="{{ url_for('main.devices') }}">Cancel</a></div>
 </form></div></section>
-<section class="card"><header><h2>After adding</h2></header><div class="body">
-  <ol>
-    <li>Bootstrap the new server from the controller (needs your initial admin access): <span class="mono">ansible-playbook playbooks/bootstrap.yml --limit NAME</span></li>
-    <li>Add its SSH host key to the controller's <span class="mono">known_hosts</span> (host key checking is on).</li>
-    <li>Open the device and run <b>Collect data</b> to load its configuration.</li>
-  </ol></div></section>
+<section class="card"><header><h2>What happens next</h2></header><div class="body">
+  <p>The device page opens with a setup checklist. You review and trust the server's SSH host key there with one click,
+    and the panel collects its data right after. The only step done by hand is bootstrapping the deploy account,
+    because it needs the server's initial admin login, which the panel never handles. The checklist shows the exact
+    command to copy.</p></div></section>
 {% endblock %}

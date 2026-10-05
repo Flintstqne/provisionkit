@@ -16,7 +16,28 @@
   </div>
 </div>
 {% if host_status and not host_status.reachable %}<div class="flash error">Last attempt to reach this device failed {{ ago(host_status.checked) }}: {{ host_status.detail or 'unreachable' }}</div>{% endif %}
-{% if d.status == 'Controller' %}<div class="flash ok">This is the controller running the panel. It is not scanned or managed by the baseline.</div>{% elif not d.snapshot %}<div class="flash error">No data collected yet. Run <b>Collect data</b> once the device is bootstrapped.</div>{% endif %}
+{% if d.status == 'Controller' %}<div class="flash ok">This is the controller running the panel. It is not scanned or managed by the baseline.</div>{% endif %}
+{% if checklist %}
+<section class="card gap-bottom"><header><h2>Set up this device</h2><span class="muted">{{ checklist|selectattr('state', 'equalto', 'done')|list|length }} of {{ checklist|length }} done</span></header>
+  <ol class="steps">
+  {% for st in checklist %}
+    <li class="step {{ st.state }}">
+      <span class="step-mark" aria-hidden="true">{{ {'done': '&#10003;', 'todo': '&#9679;', 'failed': '!', 'blocked': '&#8211;'}[st.state]|safe }}</span>
+      <div class="step-body">
+        <div><b>{{ st.title }}</b> <span class="muted">{{ {'done': 'Done', 'todo': 'To do', 'failed': 'Needs attention', 'blocked': 'Waiting'}[st.state] }}</span></div>
+        {% if st.detail %}<div class="muted">{{ st.detail }}</div>{% endif %}
+        {% if st.command %}<div class="cmd"><code class="mono" id="bootstrap-cmd">{{ st.command }}</code><button type="button" class="btn sm" data-copy="bootstrap-cmd">Copy</button></div>
+          <div class="muted">Replace INSTALLER_USER with the account you installed the server with. It asks for that account's password and sudo password once. The panel never sees them.</div>{% endif %}
+        {% if st.key == 'hostkey' and st.state == 'todo' and g.user['role'] == 'admin' %}
+          <form class="inline" method="post" action="{{ url_for('main.hostkey_review', name=d.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm primary">Review host key</button></form>{% endif %}
+        {% if st.key in ('access', 'data') and st.state in ('todo', 'failed') and g.user['role'] != 'viewer' and checklist[1].state == 'done' %}
+          <form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="collect"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn sm primary">Collect data</button></form>{% endif %}
+      </div>
+    </li>
+  {% endfor %}
+  </ol>
+</section>
+{% endif %}
 
 <nav class="tabs" aria-label="Device sections">
   {% for t in tabs %}<a href="{{ url_for('main.device', name=d.name, tab=t) }}" {% if t == tab %}aria-current="page"{% endif %}>{{ t|capitalize }}</a>{% endfor %}

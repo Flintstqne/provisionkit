@@ -19,8 +19,17 @@
 <section class="card"><header><h2>Inventory</h2></header><dl class="props">
   <dt>Path</dt><dd class="mono">{{ inv.dir }}</dd><dt>Mode</dt><dd>{{ 'Read-only example' if inv.is_example else 'Read / write' if inv.writable else 'Read-only' }}</dd>
   <dt>Validation</dt><dd>{% if problems %}<ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>{% else %}No problems found.{% endif %}</dd></dl></section>
+<section class="card gap-top"><header><h2>Scheduled collection</h2></header><div class="body">
+  <form method="post" action="{{ url_for('main.schedule_update') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="minutes">Collect data from all devices</label>
+      <select id="minutes" name="minutes">{% for m, label in intervals %}<option value="{{ m }}" {{ 'selected' if m == interval }}>{{ label }}</option>{% endfor %}</select>
+      <div class="hint">Runs the same read-only collection as the Collect data button, as the user "scheduler". One job runs at a time, so a due collection waits for a running one.</div></div>
+    <button class="btn primary">Save</button></form></div>
+  <dl class="props">
+    <dt>Next run</dt><dd>{% if next_run %}{{ next_run|int|timestamp }} UTC{% else %}Not scheduled{% endif %}</dd>
+    <dt>Last collection</dt><dd>{% if last_run %}<a href="{{ url_for('main.job', job_id=last_run.id) }}">Job #{{ last_run.id }}</a> {{ ago(last_run.created) }} ({{ last_run.status }}){% else %}None yet{% endif %}</dd></dl></section>
 <section class="card gap-top"><header><h2>Runtime</h2></header><dl class="props">
-  <dt>Mode</dt><dd>{{ 'Demo (synthetic data)' if cfg.DEMO else 'Live' }}</dd><dt>Stale after</dt><dd>{{ (cfg.STALE_AFTER_S / 3600)|round(1) }} h</dd>
+  <dt>Mode</dt><dd>{{ 'Demo (synthetic data)' if cfg.DEMO else 'Live' }}</dd><dt>Stale after</dt><dd>{{ (stale_after / 3600)|round(1) }} h</dd>
   <dt>Secure cookies</dt><dd>{{ 'Yes' if cfg.SESSION_COOKIE_SECURE else 'No (set PANEL_SECURE_COOKIE=1 behind HTTPS)' }}</dd></dl></section>
 </div></div>
 {% endblock %}

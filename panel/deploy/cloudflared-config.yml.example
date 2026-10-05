@@ -1,0 +1,10 @@
+# /etc/cloudflared/config.yml on pk-control. Replace the tunnel ID and hostname.
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /etc/cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  # The panel only listens on loopback, so cloudflared is the one thing that can reach it from outside.
+  - hostname: panel.example.org
+    service: http://127.0.0.1:8080
+  # Required catch-all: anything else gets a 404.
+  - service: http_status:404
