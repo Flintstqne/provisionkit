@@ -1,0 +1,3 @@
+---
+# Add collections only when a role uses them, with exact tested versions.
+collections: []

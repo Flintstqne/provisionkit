@@ -1,0 +1,40 @@
+---
+# Read-only. Stage 1 works before Python exists (raw probes); stage 2 needs facts.
+- name: Preflight stage 1 - raw probes
+  hosts: workload_nodes
+  gather_facts: false
+  vars:
+    provisionkit_supported_os: ["Ubuntu 24.04"]
+    provisionkit_supported_arch: [x86_64, aarch64]
+  tasks:
+    - name: Read OS release and architecture
+      ansible.builtin.raw: >-
+        . /etc/os-release && echo "$NAME $VERSION_ID" && uname -m &&
+        (command -v python3 >/dev/null && echo python3 || echo no-python)
+      register: probe
+      changed_when: false
+      check_mode: false
+
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - probe.stdout_lines[0] in provisionkit_supported_os
+          - probe.stdout_lines[1] in provisionkit_supported_arch
+        fail_msg: "Unsupported platform: {{ probe.stdout_lines[:2] | join(' / ') }}"
+
+    - name: Report Python status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ probe.stdout_lines[2] }} (run bootstrap.yml if no-python)"
+
+- name: Preflight stage 2 - facts
+  hosts: workload_nodes
+  gather_facts: true
+  tasks:
+    - name: Assert root disk has headroom
+      ansible.builtin.assert:
+        that: (ansible_mounts | selectattr('mount', 'eq', '/') | first).size_available > 5 * 1024 * 1024 * 1024
+        fail_msg: "Less than 5 GiB free on /"
+
+    - name: Assert management sources configured
+      ansible.builtin.assert:
+        that: provisionkit_management_sources | length > 0

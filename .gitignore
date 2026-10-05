@@ -1,0 +1,7 @@
+inventories/local/
+*.vault
+.vault_pass*
+*.retry
+.venv/
+__pycache__/
+.ansible/

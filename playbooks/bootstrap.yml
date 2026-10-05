@@ -1,0 +1,79 @@
+---
+# One fresh node at a time. Run as the installer account, e.g.:
+#   ansible-playbook playbooks/bootstrap.yml --limit pk-worker -u installer --ask-pass --ask-become-pass
+# Use -u, not -e ansible_user: extra vars would override the verify play's own user.
+- name: Bootstrap deployment access
+  hosts: workload_nodes
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Refuse unless exactly one host is selected
+      ansible.builtin.assert:
+        that: ansible_play_hosts_all | length == 1
+        fail_msg: "Use --limit with exactly one host"
+      run_once: true
+
+    - name: Install Python if missing, using raw because Python may not exist yet
+      ansible.builtin.raw: >-
+        command -v python3 >/dev/null ||
+        (apt-get update && apt-get install -y python3)
+      register: py
+      changed_when: "'Setting up python3' in py.stdout"
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Create deployment account
+      ansible.builtin.user:
+        name: "{{ provisionkit_deploy_user }}"
+        shell: /bin/bash
+        password_lock: true
+
+    - name: Create .ssh directory
+      ansible.builtin.file:
+        path: "/home/{{ provisionkit_deploy_user }}/.ssh"
+        state: directory
+        owner: "{{ provisionkit_deploy_user }}"
+        group: "{{ provisionkit_deploy_user }}"
+        mode: "0700"
+
+    - name: Authorize deployment key
+      ansible.builtin.lineinfile:
+        path: "/home/{{ provisionkit_deploy_user }}/.ssh/authorized_keys"
+        line: "{{ provisionkit_deploy_public_key }}"
+        create: true
+        owner: "{{ provisionkit_deploy_user }}"
+        group: "{{ provisionkit_deploy_user }}"
+        mode: "0600"
+      when: provisionkit_deploy_public_key is match('^ssh-ed25519 ')
+
+    - name: Sudoers for deployment account (validated before install)
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/90-provisionkit"
+        content: "{{ provisionkit_deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+- name: Verify with a fresh connection
+  hosts: workload_nodes
+  gather_facts: false
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o ControlPath=none -o IdentitiesOnly=yes"
+    ansible_become_password: ""
+  tasks:
+    - name: Drop any reused connection
+      ansible.builtin.meta: reset_connection
+
+    - name: Run as root through sudo with the deployment key
+      ansible.builtin.command: id -u
+      become: true
+      register: uid
+      changed_when: false
+
+    - name: Assert effective privilege
+      ansible.builtin.assert:
+        that: uid.stdout == "0"

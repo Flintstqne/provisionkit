@@ -1,0 +1,4 @@
+ansible-core<2.20  # Pi controller runs Python 3.11
+ansible-lint
+yamllint
+pyyaml
