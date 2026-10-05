@@ -1,1 +1,3 @@
 profile: safety  # ponytail: raise to moderate/shared once roles exist
+skip_list:
+  - var-naming[no-role-prefix]  # shared provisionkit_* inventory vars are deliberate

@@ -1,0 +1,27 @@
+---
+- name: Assert at least one admin key is declared
+  ansible.builtin.assert:
+    that: provisionkit_admin_users | map(attribute='ssh_keys') | flatten | length > 0
+    fail_msg: "provisionkit_admin_users needs at least one SSH key"
+
+- name: Ensure admin accounts exist with sudo
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+  loop: "{{ provisionkit_admin_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure admin SSH keys are present
+  ansible.builtin.lineinfile:
+    path: "/home/{{ item.0.name }}/.ssh/authorized_keys"
+    line: "{{ item.1 }}"
+    create: true
+    owner: "{{ item.0.name }}"
+    group: "{{ item.0.name }}"
+    mode: "0600"
+  loop: "{{ provisionkit_admin_users | subelements('ssh_keys') }}"
+  loop_control:
+    label: "{{ item.0.name }}"

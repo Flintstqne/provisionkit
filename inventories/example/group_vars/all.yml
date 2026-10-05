@@ -10,3 +10,6 @@ provisionkit_management_sources:
   - 192.0.2.40/32  # admin workstation (example)
 provisionkit_deploy_public_key: "ssh-ed25519 AAAA...replace-in-local-inventory provisionkit-deploy"
 provisionkit_deploy_key_file: /home/provisionkit/.ssh/provisionkit_ed25519
+provisionkit_admin_users:
+  - name: admin
+    ssh_keys: ["ssh-ed25519 AAAA...replace-in-local-inventory admin"]

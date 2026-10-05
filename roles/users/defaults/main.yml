@@ -1,0 +1,4 @@
+---
+# Only accounts listed here are managed. Others are never touched.
+# provisionkit_admin_users: [{name: alice, ssh_keys: ["ssh-ed25519 AAAA... alice"]}]
+provisionkit_admin_users: []
