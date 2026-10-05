@@ -1,0 +1,52 @@
+#!/bin/sh
+# Reboot this machine from the nightly timer, but never in the middle of a package operation.
+#   provisionkit-nightly-reboot [--max-wait MINUTES] [--only-if-required]
+#                               [--wait-for-unit UNIT]... [--wait-for-process REGEX]
+# If the package manager (or a named unit or process) is still busy after --max-wait minutes, tonight's reboot is
+# skipped and the run fails, so the problem shows up in `systemctl --failed` instead of corrupting an upgrade.
+set -eu
+
+max_wait=30
+only_required=0
+units=""
+procs="apt|apt-get|dpkg|unattended-upgr"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --max-wait) max_wait="${2:?--max-wait needs a number}"; shift 2 ;;
+    --only-if-required) only_required=1; shift ;;
+    --wait-for-unit) units="$units ${2:?--wait-for-unit needs a unit name}"; shift 2 ;;
+    --wait-for-process) procs="$procs|${2:?--wait-for-process needs a pattern}"; shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+case "$max_wait" in '' | *[!0-9]*) echo "--max-wait must be a number of minutes" >&2; exit 2 ;; esac
+
+say() { logger -t provisionkit-nightly-reboot "$1" 2> /dev/null || true; echo "$1"; }
+
+required_file="${PK_REBOOT_REQUIRED_FILE:-/var/run/reboot-required}"
+if [ "$only_required" = 1 ] && [ ! -e "$required_file" ]; then
+  say "no reboot is required, nothing to do"
+  exit 0
+fi
+
+busy() {
+  pgrep -x "$procs" > /dev/null 2>&1 && return 0
+  for u in $units; do
+    systemctl is-active --quiet "$u" && return 0
+  done
+  return 1
+}
+
+waited=0
+while busy; do
+  if [ "$waited" -ge $((max_wait * 60)) ]; then
+    say "skipped tonight: still busy after $max_wait minutes"
+    exit 1
+  fi
+  sleep 30
+  waited=$((waited + 30))
+done
+
+say "rebooting now"
+exec systemctl reboot

@@ -34,6 +34,14 @@ def parse_manifest(raw):
     return manifest if isinstance(manifest, dict) else {}
 
 
+def parse_nightly(raw):
+    """{'scheduled': bool, 'next': str} from the collected timer state, or None when the node reported nothing."""
+    if not isinstance(raw, dict):
+        return None
+    return {"scheduled": _truthy(raw.get("enabled")), "installed": _truthy(raw.get("installed")),
+            "next": str(raw.get("next") or "")[:60]}
+
+
 def parse_checks(snap):
     checks = []
     for c in snap.get("checks") or []:
@@ -72,7 +80,7 @@ def build_device(host, snap, status, now, stale_after, drift_for=None):
     d = dict(host)
     d.update(snapshot=bool(snap), collected=None, os="", kernel="", arch="", cpu_model="", cpus=0, mem_mb=0,
              mem_used_pct=None, uptime_s=0, checks=[], storage=[], interfaces=[], reboot=False, facts={},
-             manifest=None, drift=None)
+             manifest=None, drift=None, timezone="", nightly=None)
     if snap:
         f = snap.get("facts") or {}
         total, free = _num(f.get("mem_total_mb")), _num(f.get("mem_free_mb"))
@@ -82,7 +90,8 @@ def build_device(host, snap, status, now, stale_after, drift_for=None):
                  mem_mb=int(total), uptime_s=int(_num(f.get("uptime_s"))),
                  mem_used_pct=round((total - free) / total * 100) if total else None,
                  checks=parse_checks(snap), storage=parse_storage(f), interfaces=parse_interfaces(f),
-                 manifest=parse_manifest(snap.get("manifest_raw")))
+                 manifest=parse_manifest(snap.get("manifest_raw")), timezone=str(snap.get("timezone") or ""),
+                 nightly=parse_nightly(snap.get("nightly_reboot")))
         if drift_for:
             d["drift"] = drift_for(d["manifest"])
     if "controllers" in d["groups"]:

@@ -1,0 +1,8 @@
+# Managed by ProvisionKit (nightly_reboot role). Do not edit by hand.
+[Unit]
+Description=ProvisionKit nightly reboot
+
+[Service]
+Type=oneshot
+TimeoutStartSec={{ ((nightly_reboot_max_wait_minutes | int) + 5) * 60 }}
+ExecStart=/usr/local/sbin/provisionkit-nightly-reboot --max-wait {{ nightly_reboot_max_wait_minutes | int }}{{ ' --only-if-required' if nightly_reboot_only_if_required | bool else '' }}

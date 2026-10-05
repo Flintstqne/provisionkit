@@ -4,6 +4,7 @@
   provisionkit update     pull the latest main from GitHub, then make sure everything works
   provisionkit check      run the health checks without changing anything
   provisionkit baseline H apply the hardening baseline to one node: dry run, confirmation, apply, then validate
+  provisionkit nightly-reboot enable|disable|status   nightly reboot of this controller (nodes use the baseline role)
   provisionkit status     show the version, whether an update is waiting, and the panel state
   provisionkit version    print the installed version
   provisionkit install    put this command on your PATH (/usr/local/bin/provisionkit), needs sudo
@@ -16,6 +17,7 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -31,6 +33,14 @@ ENV_MODULES = "import flask, ruamel.yaml, waitress, jwt, ansible"
 RESTART_IF_CHANGED = ("panel/", "scripts/install_panel.sh", "scripts/provisionkit")
 DEFAULT_KEY = "/home/provisionkit/.ssh/provisionkit_ed25519"
 TAG_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
+TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+ZONE_RE = re.compile(r"^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$")
+SBIN = Path("/usr/local/sbin")
+SYSTEMD_DIR = Path("/etc/systemd/system")
+ZONEINFO = Path("/usr/share/zoneinfo")
+REBOOT_SCRIPT = "provisionkit-nightly-reboot"
+REBOOT_TIMER = "pk-nightly-reboot.timer"
+REBOOT_SERVICE = "pk-nightly-reboot.service"
 # Runs in the virtualenv (PyYAML comes with Ansible). Prints what the baseline command needs to know about one node.
 INVENTORY_FACTS = r"""
 import json, sys, yaml
@@ -368,6 +378,54 @@ class Kit:
         if not valid:
             raise Failure("Validation failed after applying.")
 
+    # ---- nightly reboot of the controller ---------------------------------------------------------------------------
+    def nightly_reboot(self, action, time="00:00", timezone=None, max_wait=30, only_if_required=False):
+        """Install, remove or report a nightly reboot timer on this machine. Managed nodes get theirs from the baseline."""
+        if action == "status":
+            return self.nightly_reboot_status()
+        if os.geteuid() != 0:
+            raise Failure(f"Run with sudo: sudo provisionkit nightly-reboot {action}")
+        if action == "disable":
+            self.sh(["systemctl", "disable", "--now", REBOOT_TIMER], check=False, root=True)
+            for f in (SYSTEMD_DIR / REBOOT_TIMER, SYSTEMD_DIR / REBOOT_SERVICE, SBIN / REBOOT_SCRIPT):
+                f.unlink(missing_ok=True)
+            self.sh(["systemctl", "daemon-reload"], root=True)
+            self.out("Nightly reboot removed from this machine.")
+            return
+        if not TIME_RE.match(time):
+            raise Failure("The time must look like 00:00 (24 hour clock).")
+        if not 1 <= max_wait <= 240:
+            raise Failure("The wait must be 1 to 240 minutes.")
+        if timezone is not None:
+            if not ZONE_RE.match(timezone) or not (ZONEINFO / timezone).is_file():
+                raise Failure(f"'{timezone}' is not a time zone name. Try America/New_York or Europe/London.")
+            self.sh(["timedatectl", "set-timezone", timezone], root=True)
+        src = self.repo / "roles" / "nightly_reboot" / "files" / REBOOT_SCRIPT
+        SBIN.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, SBIN / REBOOT_SCRIPT)
+        (SBIN / REBOOT_SCRIPT).chmod(0o755)
+        (SYSTEMD_DIR / REBOOT_SERVICE).write_text(reboot_service_text(max_wait, only_if_required))
+        (SYSTEMD_DIR / REBOOT_TIMER).write_text(reboot_timer_text(time))
+        self.sh(["systemctl", "daemon-reload"], root=True)
+        self.sh(["systemctl", "enable", REBOOT_TIMER], root=True)
+        self.sh(["systemctl", "restart", REBOOT_TIMER], root=True)  # picks up a changed time
+        zone = self.sh(["timedatectl", "show", "-p", "Timezone", "--value"], check=False, root=True).stdout.strip()
+        self.out(f"This machine will reboot every night at {time} in its time zone ({zone or 'unknown'}).")
+        self.out("Check the time zone is yours: timedatectl. Change it with: provisionkit nightly-reboot enable --timezone Area/City")
+
+    def nightly_reboot_status(self):
+        installed = (SYSTEMD_DIR / REBOOT_TIMER).exists()
+        zone = self.sh(["timedatectl", "show", "-p", "Timezone", "--value"], check=False).stdout.strip()
+        if not installed:
+            self.out(f"Nightly reboot: not installed on this machine (time zone: {zone or 'unknown'}).")
+            return
+        enabled = self.sh(["systemctl", "is-enabled", REBOOT_TIMER], check=False).stdout.strip()
+        nxt = self.sh(["systemctl", "show", REBOOT_TIMER, "-p", "NextElapseUSecRealtime", "--value"],
+                      check=False).stdout.strip()
+        when = re.search(r"OnCalendar=\*-\*-\* (\d\d:\d\d):00", (SYSTEMD_DIR / REBOOT_TIMER).read_text())
+        self.out(f"Nightly reboot: {enabled or 'unknown'}, at {when.group(1) if when else '?'} ({zone or 'unknown'}). "
+                 f"Next: {nxt or 'not scheduled'}")
+
     @staticmethod
     def controllers_not_in(sources, controllers):
         """Controller addresses that no management source covers. Hostnames are skipped, not guessed at."""
@@ -424,6 +482,24 @@ class Kit:
         self.out(f"Installed {LINK} (runs {target}, through sudo for accounts that cannot read it)")
 
 
+def reboot_service_text(max_wait, only_if_required, controller=True):
+    """Same unit as roles/nightly_reboot/templates, plus waiting for this controller's own update and Ansible jobs."""
+    extra = " --wait-for-unit provisionkit-update.service --wait-for-process ansible-playbook" if controller else ""
+    flag = " --only-if-required" if only_if_required else ""
+    return ("# Managed by ProvisionKit (provisionkit nightly-reboot). Do not edit by hand.\n[Unit]\n"
+            "Description=ProvisionKit nightly reboot\n\n[Service]\nType=oneshot\n"
+            f"TimeoutStartSec={(max_wait + 5) * 60}\n"
+            f"ExecStart={SBIN / REBOOT_SCRIPT} --max-wait {max_wait}{flag}{extra}\n")
+
+
+def reboot_timer_text(time):
+    return ("# Managed by ProvisionKit (provisionkit nightly-reboot). Do not edit by hand.\n[Unit]\n"
+            f"Description=ProvisionKit nightly reboot at {time} local time\n\n[Timer]\n"
+            f"OnCalendar=*-*-* {time}:00\n"
+            "# Not persistent on purpose: a machine that was off at that time must not reboot again right after boot.\n"
+            "Persistent=false\nAccuracySec=1s\n\n[Install]\nWantedBy=timers.target\n")
+
+
 def launcher_text(script):
     """/usr/local/bin/provisionkit. The checkout often sits in a private home directory that other accounts cannot
     enter, so a symlink would look like 'command not found' to them. This launcher falls back to sudo."""
@@ -434,8 +510,10 @@ def launcher_text(script):
             'exec sudo "$SCRIPT" "$@"\n')
 
 
-def needs_root(kit, command):
-    """update needs root only to restart the panel; install always does."""
+def needs_root(kit, command, action=None):
+    """update needs root only to restart the panel; install always does; nightly-reboot only to change things."""
+    if command == "nightly-reboot":
+        return action in ("enable", "disable")
     return command == "install" or (command == "update" and kit.service_installed())
 
 
@@ -453,6 +531,12 @@ def main(argv=None, kit=None):
     bl.add_argument("--yes", action="store_true", help="skip the typed confirmation")
     bl.add_argument("--ask-vault-pass", action="store_true", help="prompt for the Ansible Vault password")
     bl.add_argument("--allow-dirty", action="store_true", help="allow uncommitted changes (validation will reject the node)")
+    nr = sub.add_parser("nightly-reboot", help="reboot this controller every night (managed nodes use the baseline)")
+    nr.add_argument("action", choices=["enable", "disable", "status"])
+    nr.add_argument("--time", default="00:00", help="24 hour time in this machine's time zone (default 00:00)")
+    nr.add_argument("--timezone", help="set this machine's time zone first, for example America/New_York")
+    nr.add_argument("--max-wait", type=int, default=30, help="minutes to wait for updates to finish (default 30)")
+    nr.add_argument("--only-if-required", action="store_true", help="reboot only when a reboot is pending")
     sub.add_parser("check", help="run the health checks")
     st = sub.add_parser("status", help="show version, pending update and panel state")
     st.add_argument("--no-fetch", action="store_true", help="do not contact GitHub")
@@ -465,7 +549,7 @@ def main(argv=None, kit=None):
     if os.geteuid() != 0 and me != kit.owner:
         print(f"This checkout belongs to {kit.owner}. Run: sudo provisionkit {a.command}", file=sys.stderr)
         return 1
-    if needs_root(kit, a.command) and os.geteuid() != 0:
+    if needs_root(kit, a.command, getattr(a, "action", None)) and os.geteuid() != 0:
         os.execvp("sudo", ["sudo", str(Path(__file__).resolve()), *sys.argv[1:]])  # prompts for the sudo password
     try:
         if a.command == "update":
@@ -475,6 +559,9 @@ def main(argv=None, kit=None):
             return 1 if any(r.level == "fail" for r in results) else 0
         if a.command == "baseline":
             kit.baseline(a.host, a.tags, a.check_only, a.yes, a.ask_vault_pass, a.allow_dirty)
+            return 0
+        if a.command == "nightly-reboot":
+            kit.nightly_reboot(a.action, a.time, a.timezone, a.max_wait, a.only_if_required)
             return 0
         if a.command == "check":
             results = kit.check()

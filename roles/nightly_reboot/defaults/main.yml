@@ -1,0 +1,10 @@
+---
+# Nightly reboot, opt in per host or group with provisionkit_nightly_reboot: true in the inventory.
+# "Local time" is the node's own time zone. Set provisionkit_timezone to make it explicit.
+nightly_reboot_enabled: "{{ provisionkit_nightly_reboot | default(false) }}"
+nightly_reboot_time: "{{ provisionkit_nightly_reboot_time | default('00:00') }}"  # HH:MM, 24 hour
+# Wait this long for apt, dpkg or unattended-upgrades to finish. After that, skip the reboot for the night.
+nightly_reboot_max_wait_minutes: "{{ provisionkit_nightly_reboot_max_wait_minutes | default(30) }}"
+nightly_reboot_only_if_required: "{{ provisionkit_nightly_reboot_only_if_required | default(false) }}"
+# for example America/New_York. Empty leaves the node's time zone alone.
+nightly_reboot_timezone: "{{ provisionkit_timezone | default('') }}"
