@@ -20,11 +20,13 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Persistent journal directory exists
+  when: not ansible_check_mode
   ansible.builtin.stat:
     path: /var/log/journal
   register: logging_dir
 
 - name: Assert persistent storage is active
+  when: not ansible_check_mode
   ansible.builtin.assert:
     that: logging_dir.stat.isdir | default(false)
     fail_msg: "/var/log/journal missing: journald is not persistent"

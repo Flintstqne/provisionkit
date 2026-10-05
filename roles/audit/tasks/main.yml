@@ -24,6 +24,7 @@
   notify: Load audit rules
 
 - name: Enable auditd
+  when: not ansible_check_mode
   ansible.builtin.systemd:
     name: auditd
     state: started
@@ -33,11 +34,13 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Read loaded rules
+  when: not ansible_check_mode
   ansible.builtin.command: auditctl -l
   register: audit_loaded
   changed_when: false
 
 - name: Assert every rule key is loaded
+  when: not ansible_check_mode
   ansible.builtin.assert:
     that: "item in audit_loaded.stdout"
     fail_msg: "Audit key {{ item }} is not loaded"

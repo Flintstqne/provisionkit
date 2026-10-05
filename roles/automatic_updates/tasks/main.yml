@@ -32,11 +32,13 @@
   loop: [apt-daily.timer, apt-daily-upgrade.timer]
 
 - name: Read effective origins
+  when: not ansible_check_mode
   ansible.builtin.command: apt-config dump Unattended-Upgrade::Allowed-Origins
   register: automatic_updates_origins
   changed_when: false
 
 - name: Assert security-only origins
+  when: not ansible_check_mode
   ansible.builtin.assert:
     that:
       - "'-security' in automatic_updates_origins.stdout"
@@ -44,5 +46,6 @@
       - "'-backports' not in automatic_updates_origins.stdout"
 
 - name: Dry-run unattended upgrade
+  when: not ansible_check_mode
   ansible.builtin.command: unattended-upgrade --dry-run
   changed_when: false
