@@ -17,8 +17,8 @@
             state: touch
             mode: "0600"
 
-        - name: Find the event (auditd flushes in batches, so retry)
-          ansible.builtin.command: ausearch -k provisionkit-managed -ts recent -i
+        - name: Find the event (auditd flushes in batches; --input-logs because ausearch reads stdin when not on a tty)
+          ansible.builtin.command: ausearch --input-logs -k provisionkit-managed -ts recent -i
           register: verify_audit_event
           changed_when: false
           until: "'audit-test' in verify_audit_event.stdout"
