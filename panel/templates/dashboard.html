@@ -16,6 +16,7 @@
   <div class="card kpi"><div class="label">Compliance</div><div class="value">{{ s.compliance_pct ~ '%' if s.compliance_pct is not none else 'n/a' }}</div><div class="sub">{{ s.compliant }} of {{ s.scanned }} scanned devices</div></div>
   <div class="card kpi"><div class="label">Open findings</div><div class="value">{{ s.findings }}</div><div class="sub">failed posture checks</div></div>
   <div class="card kpi"><div class="label">Reboot required</div><div class="value">{{ s.reboot }}</div><div class="sub">devices with pending kernel updates</div></div>
+  <div class="card kpi"><div class="label">Config drift</div><div class="value">{{ s.drift_attention }}</div><div class="sub">{{ s.drift.get('behind', 0) }} behind, {{ s.drift.get('none', 0) }} without a manifest</div></div>
   <div class="card kpi"><div class="label">Unreachable</div><div class="value">{{ s.status['Offline'] }}</div><div class="sub">{{ s.status['Stale'] }} with stale data</div></div>
 </div>
 
@@ -44,7 +45,8 @@
     {% for d in attention %}<tr><td><a href="{{ url_for('main.device', name=d.name) }}">{{ d.name }}</a></td><td>{{ pill(d.status) }}</td>
       <td>{% if d.status == 'Offline' %}Unreachable at last attempt{% elif d.status == 'Stale' %}Data last collected {{ ago(d.collected) }}{% endif %}
         {% for c in d.checks if c.state == 'fail' %}<span class="tag">{{ c.id }}</span>{% endfor %}
-        {% if d.reboot %}<span class="tag">reboot required</span>{% endif %}</td></tr>{% endfor %}
+        {% if d.reboot %}<span class="tag">reboot required</span>{% endif %}
+        {% if d.drift and d.drift.state in ('behind', 'unknown', 'dirty', 'invalid') %}<span class="tag">config {{ d.drift.label|lower }}</span>{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>{% else %}<div class="empty">Nothing needs attention.</div>{% endif %}</section>
   <section class="card"><header><h2>Recent activity</h2>{% if g.user['role'] != 'viewer' %}<a href="{{ url_for('main.audit_log') }}">Audit log</a>{% endif %}</header>
     <div class="table-wrap"><table><tbody>

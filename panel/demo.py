@@ -1,6 +1,7 @@
 """Synthetic data for PANEL_DEMO=1 so the console can be shown without a lab. Never touches real inventory."""
 import json
 import random
+import subprocess
 import time
 
 from .db import connect, save_snapshot
@@ -32,7 +33,39 @@ def _inventory_yaml():
     return "\n".join(lines) + "\n"
 
 
-def _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now):
+def _commits():
+    """Real commits from this checkout, so the demo shows genuine drift: the current one, and the newest one that is
+    behind in a way that matters (a role or the baseline playbook changed since)."""
+    from .config import ROOT
+    from .drift import RELEVANT
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True).stdout.split()
+    head = (git("rev-parse", "HEAD") or [""])[0]
+    for c in git("rev-list", "--max-count=300", "HEAD")[1:]:
+        if git("diff", "--name-only", c, "HEAD", "--", *RELEVANT):
+            return head, c
+    return head, "1" * 40
+
+
+# which manifest each demo node carries: current, behind, dirty or none
+MANIFESTS = {"pk-server": "current", "pk-worker": "current", "pk-db01": "behind", "pk-web01": "current",
+             "pk-web02": "dirty", "pk-mon01": "none", "pk-edge01": "current"}
+
+
+def _manifest(name, kind, head, older):
+    if kind == "none":
+        return ""
+    commit = {"current": head, "behind": older, "dirty": head + "-dirty"}[kind]
+    return json.dumps({"schema_version": 1, "node_id": name, "baseline_release": "unreleased",
+                       "configuration_commit": commit, "configuration_profile": "standalone",
+                       "expected_services": ["ssh", "auditd", "systemd-timesyncd"],
+                       "managed_paths": ["/etc/ssh/sshd_config.d/10-provisionkit.conf", "/etc/sudoers.d/90-provisionkit"],
+                       "policy_ids": ["ssh-key-only", "ssh-no-root-login", "security-updates-only",
+                                      "persistent-journal", "audit-core-rules"]}, indent=2)
+
+
+def _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now, manifest_raw=""):
     mem_free = int(mem * rng.uniform(0.2, 0.7))
     root = int(rng.uniform(40, 220) * 1024**3)
     data_disk = int(rng.uniform(200, 900) * 1024**3)
@@ -40,6 +73,7 @@ def _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now):
     checks[-1]["applicable"] = name in ("pk-server", "pk-worker", "pk-db01")
     return {
         "host": name, "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "reboot_required": reboot,
+        "manifest_raw": manifest_raw,
         "facts": {"os": "Ubuntu", "os_version": os_ver, "kernel": "6.8.0-45-generic" if os_ver == "24.04" else "5.15.0-122-generic",
                   "arch": "x86_64", "fqdn": f"{name}.lab.example", "hostname": name, "python": "3.12.3",
                   "cpu_model": "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz", "cpu_count": cpus, "mem_total_mb": mem,
@@ -66,11 +100,13 @@ def seed(config, inv_dir):
         "provisionkit_deploy_public_key: \"ssh-ed25519 AAAAdemo provisionkit-deploy\"\n"
         "provisionkit_admin_users:\n  - name: admin\n    ssh_keys: [\"ssh-ed25519 AAAAdemo admin\"]\n")
     rng, now = random.Random(7), time.time()
+    head, older = _commits()
     db = connect(config["DB_PATH"])
     for name, ip, _g, os_ver, cpus, mem, failing, reboot, state in HOSTS:
         if state == "pending":
             continue
-        save_snapshot(db, name, _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now))
+        save_snapshot(db, name, _snapshot(name, ip, os_ver, cpus, mem, failing, reboot, rng, now,
+                                          _manifest(name, MANIFESTS.get(name, "none"), head, older)))
         age = 2 * 86400 if state == "offline" else rng.uniform(60, 3000)
         db.execute("UPDATE snapshots SET collected=? WHERE host=?", (now - age, name))
         db.execute("INSERT OR REPLACE INTO host_status VALUES (?,?,?,?)",

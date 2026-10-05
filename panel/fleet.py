@@ -1,4 +1,5 @@
 """Join inventory, collected snapshots and reachability into device records for the views."""
+import json
 import time
 
 from .db import snapshots
@@ -20,6 +21,17 @@ def _num(v, default=0):
 
 def _fmt_gb(b):
     return round(_num(b) / 1024**3, 1)
+
+
+def parse_manifest(raw):
+    """None when the node has no manifest. An empty dict, which classifies as unreadable, when it is damaged."""
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        manifest = json.loads(raw)
+    except ValueError:
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
 
 
 def parse_checks(snap):
@@ -56,10 +68,11 @@ def parse_interfaces(facts):
     return out
 
 
-def build_device(host, snap, status, now, stale_after):
+def build_device(host, snap, status, now, stale_after, drift_for=None):
     d = dict(host)
     d.update(snapshot=bool(snap), collected=None, os="", kernel="", arch="", cpu_model="", cpus=0, mem_mb=0,
-             mem_used_pct=None, uptime_s=0, checks=[], storage=[], interfaces=[], reboot=False, facts={})
+             mem_used_pct=None, uptime_s=0, checks=[], storage=[], interfaces=[], reboot=False, facts={},
+             manifest=None, drift=None)
     if snap:
         f = snap.get("facts") or {}
         total, free = _num(f.get("mem_total_mb")), _num(f.get("mem_free_mb"))
@@ -68,7 +81,10 @@ def build_device(host, snap, status, now, stale_after):
                  arch=f.get("arch", ""), cpu_model=f.get("cpu_model", ""), cpus=int(_num(f.get("cpu_count"))),
                  mem_mb=int(total), uptime_s=int(_num(f.get("uptime_s"))),
                  mem_used_pct=round((total - free) / total * 100) if total else None,
-                 checks=parse_checks(snap), storage=parse_storage(f), interfaces=parse_interfaces(f))
+                 checks=parse_checks(snap), storage=parse_storage(f), interfaces=parse_interfaces(f),
+                 manifest=parse_manifest(snap.get("manifest_raw")))
+        if drift_for:
+            d["drift"] = drift_for(d["manifest"])
     if "controllers" in d["groups"]:
         d["status"] = CONTROLLER  # the machine running the panel; not scanned
     elif status is not None and not status["reachable"]:
@@ -91,11 +107,12 @@ def build_device(host, snap, status, now, stale_after):
     return d
 
 
-def devices(inv, db, stale_after):
+def devices(inv, db, stale_after, drift_for=None):
     snaps = snapshots(db)
     status = {r["host"]: r for r in db.execute("SELECT * FROM host_status")}
     now = time.time()
-    return {n: build_device(h, snaps.get(n), status.get(n), now, stale_after) for n, h in inv.hosts().items()}
+    return {n: build_device(h, snaps.get(n), status.get(n), now, stale_after, drift_for)
+            for n, h in inv.hosts().items()}
 
 
 def summary(devs):
@@ -111,7 +128,12 @@ def summary(devs):
         for c in d["checks"]:
             if c["state"] == "fail":
                 failing.setdefault(c["title"], []).append(d["name"])
+    drift = {}
+    for d in vals:
+        if d["drift"]:
+            drift[d["drift"]["state"]] = drift.get(d["drift"]["state"], 0) + 1
     return {
+        "drift": drift, "drift_attention": sum(drift.get(k, 0) for k in ("behind", "unknown", "dirty", "invalid")),
         "total": len(vals), "status": by_status, "os": sorted(by_os.items(), key=lambda kv: -kv[1]),
         "compliant": sum(d["compliance"] == "Compliant" for d in scanned), "scanned": len(scanned),
         "reboot": sum(d["reboot"] for d in vals), "findings": sum(len(v) for v in failing.values()),

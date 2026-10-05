@@ -53,6 +53,12 @@
         path: /var/run/reboot-required
       register: collect_reboot
 
+    - name: Read the baseline manifest, if the node has one
+      ansible.builtin.slurp:
+        src: /etc/provisionkit/baseline.json
+      register: collect_manifest
+      failed_when: false
+
     - name: Write snapshot on the controller
       ansible.builtin.copy:
         dest: "{{ panel_out_dir }}/{{ inventory_hostname }}.json"
@@ -70,6 +76,9 @@
           host: "{{ inventory_hostname }}"
           collected_at: "{{ ansible_facts['date_time']['iso8601'] }}"
           reboot_required: "{{ collect_reboot.stat.exists }}"
+          # Raw text, parsed by the panel, so a damaged manifest shows as "Unreadable" and never breaks collection.
+          manifest_raw: >-
+            {{ (collect_manifest.content | b64decode)[:20000] if collect_manifest.content is defined else '' }}
           facts:
             os: "{{ ansible_facts['distribution'] }}"
             os_version: "{{ ansible_facts['distribution_version'] }}"
