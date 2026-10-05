@@ -283,15 +283,30 @@ class Kit:
         else:
             self.out("Panel:   service not installed")
 
+    def launcher_current(self):
+        want = launcher_text(self.repo / "scripts" / "provisionkit")
+        return LINK.is_file() and not LINK.is_symlink() and LINK.read_text() == want
+
     def install_link(self):
         if os.geteuid() != 0:
             raise Failure("Run with sudo: sudo scripts/provisionkit install")
         target = self.repo / "scripts" / "provisionkit"
         LINK.parent.mkdir(parents=True, exist_ok=True)
         if LINK.is_symlink() or LINK.exists():
-            LINK.unlink()
-        LINK.symlink_to(target)
-        self.out(f"Installed {LINK} -> {target}")
+            LINK.unlink()  # also replaces the symlink older versions created
+        LINK.write_text(launcher_text(target))
+        LINK.chmod(0o755)
+        self.out(f"Installed {LINK} (runs {target}, through sudo for accounts that cannot read it)")
+
+
+def launcher_text(script):
+    """/usr/local/bin/provisionkit. The checkout often sits in a private home directory that other accounts cannot
+    enter, so a symlink would look like 'command not found' to them. This launcher falls back to sudo."""
+    return ("#!/bin/sh\n"
+            "# Installed by 'provisionkit install'. Do not edit.\n"
+            f'SCRIPT="{script}"\n'
+            'if [ -r "$SCRIPT" ]; then exec "$SCRIPT" "$@"; fi\n'
+            'exec sudo "$SCRIPT" "$@"\n')
 
 
 def needs_root(kit, command):
@@ -323,7 +338,7 @@ def main(argv=None, kit=None):
     try:
         if a.command == "update":
             results = kit.update(a.skip_env, a.skip_service, rollback=not a.no_rollback)
-            if os.geteuid() == 0 and not LINK.exists():
+            if os.geteuid() == 0 and not kit.launcher_current():
                 kit.install_link()
             return 1 if any(r.level == "fail" for r in results) else 0
         if a.command == "check":
