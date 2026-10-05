@@ -1,0 +1,32 @@
+---
+# Local LLM inference with llama.cpp's llama-server. CPU only, loopback only.
+# Pinned artifacts have no usable default on purpose: compute them with scripts/pin_llm_artifacts.py and put them,
+# plus the API key (in Vault), in inventories/local/group_vars/llm_servers.yml.
+llm_server_binary_url: ""     # llama.cpp release archive (.zip or .tar.gz) for Linux x86_64
+llm_server_binary_sha256: ""
+llm_server_model_url: ""      # a GGUF file, for example a 4-bit (Q4_K_M) quantisation of a 7B-8B instruct model
+llm_server_model_sha256: ""
+llm_server_model_filename: ""
+llm_server_api_key: ""        # at least 32 characters; keep it in Vault
+
+llm_server_user: llm
+llm_server_home: /var/lib/llm-server
+llm_server_install_dir: /opt/llm-server
+llm_server_config_dir: /etc/llm-server
+
+# Only loopback is supported for now. Reach the server from the controller through an SSH tunnel until the firewall
+# role has been applied and tested on the node.
+llm_server_bind: 127.0.0.1
+llm_server_port: 8081
+
+# Physical cores usually beat hardware threads for llama.cpp; tune with playbooks/llm_bench.yml.
+llm_server_threads: 4
+llm_server_ctx: 4096
+llm_server_parallel: 1
+# Keep the node responsive for SSH and Ansible while a request runs.
+llm_server_memory_max: 10G
+llm_server_cpu_weight: 50
+llm_server_min_ram_mb: 8192
+
+# The pinned binary must list every flag the unit uses, or the role stops before touching the running service.
+llm_server_required_flags: ["--host", "--port", "--threads", "--ctx-size", "--parallel", "--model", "--no-webui"]

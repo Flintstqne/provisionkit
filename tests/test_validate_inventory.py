@@ -20,4 +20,5 @@ assert any("empty" in e for e in validate(mutated("provisionkit_management_sourc
 assert any("0.0.0.0/0" in e for e in validate(mutated("192.0.2.40/32", "0.0.0.0/0", "group_vars/all.yml"), example=True))
 assert any("k3s" in e for e in validate(mutated("pk-worker: {}", "pk-control: {}", "hosts.yml"), example=True))
 assert any("no SSH key" in e for e in validate(mutated('ssh_keys: ["ssh-ed25519 AAAA...replace-in-local-inventory admin"]', "ssh_keys: []", "group_vars/all.yml"), example=True))
+assert any("llm_servers" in e for e in validate(mutated("llm_servers:\n      hosts:\n        pk-worker: {}", "llm_servers:\n      hosts:\n        pk-control: {}", "hosts.yml"), example=True))
 print("ok")

@@ -26,6 +26,7 @@ GROUP_INFO = {
     "workload_nodes": "Hardened baseline targets",
     "docker_hosts": "Container hosts",
     "monitoring_servers": "Monitoring stack",
+    "llm_servers": "Local LLM inference",
     "k3s_servers": "Kubernetes control plane",
     "k3s_agents": "Kubernetes agents",
 }
