@@ -1,5 +1,7 @@
 # ProvisionKit
 
+[![CI](https://github.com/Flintstqne/provisionkit/actions/workflows/ci.yml/badge.svg)](https://github.com/Flintstqne/provisionkit/actions/workflows/ci.yml)
+
 Ansible provisioning, hardening and service deployment for a small Linux lab (Pi controller + two Ubuntu 24.04 servers).
 
 **Status:** early. Verified on one physical node (`pk-worker`, Ubuntu 24.04.5 x86_64):

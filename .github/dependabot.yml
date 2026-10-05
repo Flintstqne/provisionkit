@@ -1,0 +1,15 @@
+---
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # Controller runs Python 3.11, where ansible-core 2.20 and later is not available.
+    ignore:
+      - dependency-name: ansible-core
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
