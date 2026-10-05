@@ -55,7 +55,7 @@
     - name: Read unit state (no state argument, so read-only)
       ansible.builtin.systemd:
         name: "{{ item }}"
-      loop: [apt-daily.timer, apt-daily-upgrade.timer, auditd.service, ssh.service]
+      loop: [apt-daily.timer, apt-daily-upgrade.timer, auditd.service, ssh.socket, ssh.service]
       register: validate_units
 
     - name: Assert baseline state
@@ -84,7 +84,10 @@
 
     - name: Assert units are enabled
       ansible.builtin.assert:
-        that: item.status.UnitFileState == 'enabled'
+        # Ubuntu 24.04 starts sshd through ssh.socket, so ssh.service is only required to be active.
+        that: >-
+          item.status.ActiveState == 'active'
+          if item.item == 'ssh.service' else item.status.UnitFileState == 'enabled'
         quiet: true
       loop: "{{ validate_units.results }}"
       loop_control:
