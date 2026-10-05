@@ -55,7 +55,7 @@ python -m panel run                     # http://127.0.0.1:8080
 On pk-control, as the account that already runs Ansible (it holds the deploy key and the servers' host keys):
 
 ```
-git clone <your repo url> ~/provisionkit && cd ~/provisionkit && git checkout feature/panel-cloudflare
+git clone <your repo url> ~/provisionkit && cd ~/provisionkit
 sudo scripts/install_panel.sh            # asks for an admin username and password
 ```
 

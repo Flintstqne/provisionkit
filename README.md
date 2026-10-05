@@ -20,7 +20,7 @@ Not done: Fail2Ban, sysctl profiles, Docker, monitoring, K3s, a second node. The
 make check   # syntax checks, yamllint, inventory validator self-test
 ```
 
-`panel/` is a small web console for the controller (inventory, device data, compliance, read-only jobs). See [panel/README.md](panel/README.md).
+`panel/` is a small web console for the controller (inventory, device data, compliance, read-only jobs, guided device setup, scheduled collection). Running on the lab controller behind a Cloudflare tunnel. See [panel/README.md](panel/README.md).
 
 `roles/llm_server` runs a local llama.cpp model server on a node (loopback only, pinned and checksum-verified, sandboxed). Written and partly tested, **not yet run on hardware**. See [docs/llm-server.md](docs/llm-server.md).
 
