@@ -12,3 +12,4 @@
   roles:
     - base_system
     - users
+    - ssh_hardening

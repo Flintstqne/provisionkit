@@ -1,0 +1,4 @@
+---
+ssh_hardening_fragment: /etc/ssh/sshd_config.d/10-provisionkit.conf
+ssh_hardening_state_dir: /var/lib/provisionkit/ssh
+ssh_hardening_rollback_minutes: 10

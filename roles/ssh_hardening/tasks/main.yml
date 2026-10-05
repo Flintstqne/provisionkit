@@ -1,0 +1,126 @@
+---
+- name: Preview fragment change
+  ansible.builtin.template:
+    src: 10-provisionkit.conf.j2
+    dest: "{{ ssh_hardening_fragment }}"
+    owner: root
+    group: root
+    mode: "0644"
+  check_mode: true
+  register: ssh_hardening_preview
+
+- name: Apply SSH policy with timed rollback
+  when: ssh_hardening_preview.changed
+  block:
+    - name: Create state directory
+      ansible.builtin.file:
+        path: "{{ ssh_hardening_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Save current fragment, if any
+      ansible.builtin.copy:
+        src: "{{ ssh_hardening_fragment }}"
+        dest: "{{ ssh_hardening_state_dir }}/previous.conf"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      failed_when: false
+
+    - name: Install rollback script
+      ansible.builtin.template:
+        src: rollback.sh.j2
+        dest: /usr/local/sbin/provisionkit-ssh-rollback
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Clear any stale rollback timer
+      ansible.builtin.systemd:
+        name: pk-ssh-rollback.timer
+        state: stopped
+      failed_when: false
+
+    - name: Arm rollback timer
+      ansible.builtin.command: >-
+        systemd-run --unit=pk-ssh-rollback --on-active={{ ssh_hardening_rollback_minutes }}m
+        /usr/local/sbin/provisionkit-ssh-rollback
+      changed_when: true
+
+    - name: Install SSH policy fragment
+      ansible.builtin.template:
+        src: 10-provisionkit.conf.j2
+        dest: "{{ ssh_hardening_fragment }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Validate full sshd configuration
+      ansible.builtin.command: sshd -t
+      changed_when: false
+
+    - name: Read effective sshd settings
+      ansible.builtin.command: sshd -T
+      register: ssh_hardening_effective
+      changed_when: false
+
+    - name: Assert effective policy
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in ssh_hardening_effective.stdout_lines"
+          - "'permitrootlogin no' in ssh_hardening_effective.stdout_lines"
+          - "'kbdinteractiveauthentication no' in ssh_hardening_effective.stdout_lines"
+        fail_msg: "Another sshd_config fragment overrides the managed policy; not reloading"
+
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded
+
+    - name: Fresh login as the deployment account works
+      ansible.builtin.command: >-
+        ssh -o BatchMode=yes -o ControlPath=none -o IdentitiesOnly=yes
+        -i {{ provisionkit_deploy_key_file }} {{ provisionkit_deploy_user }}@{{ ansible_host }} true
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Password login is refused
+      ansible.builtin.command: >-
+        ssh -o BatchMode=yes -o ControlPath=none -o PubkeyAuthentication=no
+        -o PreferredAuthentications=password,keyboard-interactive
+        {{ provisionkit_deploy_user }}@{{ ansible_host }} true
+      delegate_to: localhost
+      become: false
+      register: ssh_hardening_pw
+      failed_when: ssh_hardening_pw.rc == 0 or 'password' in ssh_hardening_pw.stderr
+      changed_when: false
+
+    - name: Confirm admin login from another device
+      ansible.builtin.pause:
+        prompt: >-
+          From your laptop run: ssh {{ provisionkit_admin_users[0].name }}@{{ ansible_host }} true
+          then press Enter. To abort, press Ctrl-C then A; the rollback fires on its own timer.
+
+    - name: Disarm rollback timer
+      ansible.builtin.systemd:
+        name: pk-ssh-rollback.timer
+        state: stopped
+
+  rescue:
+    - name: Roll back SSH policy now
+      ansible.builtin.command: /usr/local/sbin/provisionkit-ssh-rollback
+      changed_when: true
+
+    - name: Cancel rollback timer
+      ansible.builtin.systemd:
+        name: pk-ssh-rollback.timer
+        state: stopped
+      failed_when: false
+
+    - name: Fail the host
+      ansible.builtin.fail:
+        msg: "SSH hardening failed and was rolled back"
