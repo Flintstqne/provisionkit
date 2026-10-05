@@ -1,0 +1,27 @@
+---
+# Mutating on purpose: touches then removes a file under the audited /etc/provisionkit/.
+- name: Verify a controlled audit event is recorded
+  hosts: workload_nodes
+  gather_facts: false
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+  tasks:
+    - name: Create a file in the audited directory
+      ansible.builtin.file:
+        path: /etc/provisionkit/audit-test
+        state: touch
+        mode: "0600"
+
+    - name: Find the event
+      ansible.builtin.command: ausearch -k provisionkit-managed -ts recent -i
+      register: verify_audit_event
+      changed_when: false
+      failed_when: "'audit-test' not in verify_audit_event.stdout"
+
+    - name: Remove the test file
+      ansible.builtin.file:
+        path: /etc/provisionkit/audit-test
+        state: absent

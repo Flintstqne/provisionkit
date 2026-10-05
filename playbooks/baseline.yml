@@ -1,5 +1,6 @@
 ---
 # Canary first: ansible-playbook playbooks/baseline.yml --limit pk-worker
+# Skip a role with --skip-tags <role>. Tags select roles; they are not a safety boundary.
 - name: Apply Linux baseline
   hosts: workload_nodes
   serial: 1
@@ -10,7 +11,20 @@
     ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
     ansible_ssh_common_args: "-o IdentitiesOnly=yes"
   roles:
-    - base_system
-    - users
-    - ssh_hardening
-    - firewall
+    - {role: base_system, tags: [base_system]}
+    - {role: users, tags: [users]}
+    - {role: ssh_hardening, tags: [ssh_hardening]}
+    - {role: firewall, tags: [firewall]}
+    - {role: automatic_updates, tags: [automatic_updates]}
+    - {role: logging, tags: [logging]}
+    - {role: audit, tags: [audit]}
+  post_tasks:
+    - name: Check for a pending reboot
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: baseline_reboot
+
+    - name: Report pending reboot
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: REBOOT REQUIRED (not performed)"
+      when: baseline_reboot.stat.exists

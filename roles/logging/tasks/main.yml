@@ -1,0 +1,30 @@
+---
+- name: Create journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Persistent, size-capped journal
+  ansible.builtin.template:
+    src: 10-provisionkit.conf.j2
+    dest: /etc/systemd/journald.conf.d/10-provisionkit.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Apply journald change now
+  ansible.builtin.meta: flush_handlers
+
+- name: Persistent journal directory exists
+  ansible.builtin.stat:
+    path: /var/log/journal
+  register: logging_dir
+
+- name: Assert persistent storage is active
+  ansible.builtin.assert:
+    that: logging_dir.stat.isdir | default(false)
+    fail_msg: "/var/log/journal missing: journald is not persistent"
