@@ -6,6 +6,17 @@
 {% set live = job.status in ('queued', 'running') %}
 <div class="page-head"><div><h1>Job #{{ job.id }} <span id="job-status" {% if live %}data-live="1"{% endif %}>{{ pill(job.status) }}</span></h1>
   <p>{{ kinds[job.kind].label if job.kind in kinds else job.kind }} on <span class="mono">{{ job.target }}</span>, started by {{ job.user }} {{ ago(job.created) }}.</p></div></div>
+{% if meta.override %}<div class="flash error">Started outside the maintenance window. Reason given: {{ meta.override }}</div>{% endif %}
+{% if meta.source_job %}<p class="muted">Approved from preview <a href="{{ url_for('main.job', job_id=meta.source_job) }}">#{{ meta.source_job }}</a> at commit <span class="mono">{{ meta.commit[:12] }}</span>.</p>{% endif %}
+{% if approve %}<section class="card gap-bottom"><header><h2>Approve this baseline</h2></header><div class="body">
+{% if approve.ok and g.user['role'] == 'admin' %}
+  <p class="muted">Read the output below first. Approving applies the baseline to <span class="mono">{{ job.target }}</span> (every role except the firewall, which needs a second login and runs only from <span class="mono">provisionkit baseline</span>), then validates and collects.</p>
+  <form method="post" action="{{ url_for('main.baseline_approve', job_id=job.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="a-confirm">Type the node's name</label><input id="a-confirm" name="confirm" type="text" autocomplete="off" required placeholder="{{ job.target }}"></div>
+    <div class="field"><label for="a-override">Outside a maintenance window? Reason to override</label><input id="a-override" name="override" type="text" maxlength="200" autocomplete="off"></div>
+    <button class="btn primary">Approve and apply</button></form>
+{% elif approve.ok %}<p class="muted">An admin can approve this preview.</p>
+{% else %}<p class="muted">{{ approve.why }}</p>{% endif %}</div></section>{% endif %}
 {% if hosts %}<section class="card"><header><h2>Results by host</h2></header><div class="table-wrap"><table><thead><tr><th>Host</th><th>Result</th><th class="num">OK tasks</th><th>Detail</th></tr></thead><tbody>
 {% for h in hosts %}<tr><td><a href="{{ url_for('main.device', name=h.host) }}">{{ h.host }}</a></td><td>{{ pill('Offline' if h.unreachable else 'fail' if h.failed else 'pass') }}</td><td class="num">{{ h.ok }}</td><td class="mono">{{ h.message }}</td></tr>{% endfor %}
 </tbody></table></div></section>{% endif %}

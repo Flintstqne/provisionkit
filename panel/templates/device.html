@@ -10,7 +10,8 @@
     {% if g.user['role'] != 'viewer' and d.status != 'Controller' %}
     <form class="inline" method="post" action="{{ url_for('main.device_ping', name=d.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Test connection</button></form>
     <form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="collect"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn primary">Collect data</button></form>
-    {% if 'workload_nodes' in d.groups %}<form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="validate"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn">Run validation</button></form>{% endif %}
+    {% if 'workload_nodes' in d.groups %}<form class="inline" method="post" action="{{ url_for('main.job_start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="validate"><input type="hidden" name="target" value="{{ d.name }}"><button class="btn">Run validation</button></form>
+    <form class="inline" method="post" action="{{ url_for('main.baseline_preview', name=d.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Preview baseline</button></form>{% endif %}
     {% endif %}
     {% if g.user['role'] == 'admin' and inv.writable %}<form class="inline" method="post" action="{{ url_for('main.device_remove', name=d.name) }}" data-confirm="Remove {{ d.name }} from the inventory? The server itself is not changed."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger">Remove</button></form>{% endif %}
   </div>

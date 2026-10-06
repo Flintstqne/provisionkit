@@ -67,3 +67,13 @@ dirty tree, wrong branch, diverged history, unreachable remote, dependency chang
 key checks. The whole command was also run once from a fresh checkout (pull, create the virtualenv, install
 dependencies, run every check). **Not tested:** the systemd restart path on a real machine (the sandbox has no systemd)
 and the sudo re-exec. The service steps are covered by tests with the system calls replaced.
+
+## backup and restore
+
+```
+provisionkit backup FILE           write an encrypted backup of the panel data (asks for a passphrase)
+sudo provisionkit restore FILE     replace the panel data from a backup (stops the panel briefly)
+```
+
+Both take `--passphrase-file PATH` for scripts. `restore` checks the whole archive before changing anything and keeps the
+old data next to the originals. See [operations.md](operations.md).

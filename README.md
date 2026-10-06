@@ -32,6 +32,8 @@ The panel has an Update button (admins) that runs `provisionkit update` through 
 
 Nightly reboots at 00:00 local time are available but off until you opt in. See [docs/nightly-reboot.md](docs/nightly-reboot.md).
 
+Operations from the panel (baseline approval, maintenance windows, rolling reboot, compliance report, encrypted backup): [docs/operations.md](docs/operations.md).
+
 Security policy: [SECURITY.md](SECURITY.md). Threat model: [docs/threat-model.md](docs/threat-model.md). Panel ideas: [docs/panel-roadmap.md](docs/panel-roadmap.md).
 
 Real addresses/keys/Vault go in `inventories/local/` (git-ignored).

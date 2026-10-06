@@ -81,6 +81,23 @@ role has a timed rollback if a fresh login fails. The firewall role has one too.
 code if the panel fails to start. Nightly reboots wait for apt and unattended-upgrades and skip the night if they stay
 busy.
 
+### Changing machines from the panel
+
+Admins can apply the baseline and run a rolling reboot from the panel. An admin session can now change every managed node,
+so these controls apply: only admins may approve; a dry run must be fresh and tied to the exact controller commit;
+a dirty checkout is refused; the node's name or `REBOOT target` must be typed; maintenance windows gate the change and an
+override needs a reason that is stored in the audit log; the firewall role is excluded because it needs an interactive
+second login. Rolling reboot stops at the first failure and never touches the controller. Details in
+[operations.md](operations.md).
+
+### The backup file
+
+The archive holds password hashes, the audit log and inventory files. It is encrypted and authenticated with a key from a
+passphrase of at least 16 characters (scrypt, then Fernet). SSH keys and the session secret are never included. Restore
+validates everything before changing anything, refuses unexpected file names and links, and rotates the session secret. A
+weak passphrase still allows offline guessing, so the length rule is the main defense. Downloads are audited without the
+passphrase.
+
 ## Risks that remain
 
 These are known and accepted for now. Each has a possible fix.
@@ -90,8 +107,9 @@ These are known and accepted for now. Each has a possible fix.
 2. **A bad commit on GitHub `main` runs as root on the controller.** `provisionkit update` fast-forwards to `main` and
    the updater runs as root. Fix: require signed commits and verify them before merging, and protect `main` with
    required checks.
-3. **A panel compromise can reach the deploy key.** The panel account must read the key to run Ansible. Fix: run
-   Ansible in a separate unit or user and let the panel talk to it through a queue.
+3. **A panel compromise can reach the deploy key and now change nodes.** The panel account must read the key to run
+   Ansible, and approved baseline and reboot jobs run through it. Fix: run Ansible in a separate unit or user and let
+   the panel talk to it through a queue.
 4. **No second factor in the panel.** Cloudflare Access supplies one if you enable it there, but the panel itself
    accepts a password alone. Fix: add TOTP.
 5. **The audit log is not tamper-evident.** It is a SQLite table. An admin or an attacker with the database can edit
@@ -99,7 +117,8 @@ These are known and accepted for now. Each has a possible fix.
 6. **Trust on first use for host keys.** Review of the fingerprint is manual. A careless approval trusts a bad key.
 7. **Cloudflare is a dependency.** If the Access policy is misconfigured, the panel's own login is the only barrier.
    That is why the panel verifies the Access token itself.
-8. **Not tested on hardware:** the firewall role and the systemd path unit for the updater. The sandbox this was built
+8. **Not tested on hardware:** the firewall role, the systemd path unit for the updater, and the rolling reboot
+   playbook (its syntax and the panel logic around it are tested, an actual reboot is not). The sandbox this was built
    in has no systemd, so both were checked by reading unit files with `systemd-analyze` and simulating the contract.
 
 ## Review checklist for each change

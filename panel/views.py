@@ -1,12 +1,14 @@
 import csv
 import io
+import json
 import socket
 import time
+from datetime import datetime
 
 from flask import (Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session,
                    url_for)
 
-from . import auth, drift, fleet, jobs, scheduler, setup, updater
+from . import auth, backup, drift, fleet, jobs, ops, report, scheduler, setup, updater, windows
 from .db import audit, get_db
 from .inventory import NO_ADD, InventoryError
 
@@ -261,7 +263,8 @@ def compliance():
 def jobs_list():
     rows = get_db().execute("SELECT * FROM jobs ORDER BY id DESC LIMIT 50").fetchall()
     targets = ["all"] + sorted(_inv().groups()) + sorted(_inv().hosts())
-    return render_template("jobs.html", jobs=rows, kinds=jobs.KINDS, targets=targets, page="jobs")
+    readonly = {k: v for k, v in jobs.KINDS.items() if not v.get("mutating")}
+    return render_template("jobs.html", jobs=rows, kinds=jobs.KINDS, runnable=readonly, targets=targets, page="jobs")
 
 
 @bp.post("/jobs")
@@ -281,7 +284,12 @@ def job_start():
 def job(job_id):
     row = get_db().execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone() or abort(404)
     hosts = get_db().execute("SELECT * FROM job_hosts WHERE job_id=? ORDER BY host", (job_id,)).fetchall()
-    return render_template("job.html", job=row, hosts=hosts, kinds=jobs.KINDS, page="jobs")
+    meta = json.loads(row["meta"] or "{}")
+    approve = None
+    if row["kind"] == "baseline_check":
+        ok, why = ops.preview_state(get_db(), row)
+        approve = {"ok": ok, "why": why}
+    return render_template("job.html", job=row, hosts=hosts, kinds=jobs.KINDS, meta=meta, approve=approve, page="jobs")
 
 
 @bp.route("/jobs/<int:job_id>/log.json")
@@ -291,6 +299,151 @@ def job_log(job_id):
     path = jobs.log_path(current_app.config, job_id)
     text = path.read_text(errors="replace")[-200_000:] if path.exists() else ""
     return jsonify(status=row["status"], log=text)
+
+
+# ---- maintenance: windows, baseline approval, rolling reboot ---------------------------------------------------
+
+def _fmt_local(ts, tz):
+    return datetime.fromtimestamp(ts, tz).strftime("%a %d %b %H:%M") if ts else ""
+
+
+@bp.route("/maintenance")
+@auth.require()
+def maintenance():
+    db, inv = get_db(), _inv()
+    tz, now = windows.get_zone(db), time.time()
+    wins = windows.all_windows(db)
+    for w in wins:
+        st = windows.state(w, now, tz)
+        w.update(open=st["open"], until=_fmt_local(st["until"], tz), next=_fmt_local(st["next"], tz),
+                 days_text=" ".join(d.capitalize() for d in w["days"].split(",")))
+    managed = ops.managed_hosts(inv)
+    hosts = []
+    for name, groups in managed.items():
+        st = windows.host_status(windows.all_windows(db), groups, now, tz)
+        hosts.append({"name": name, "restricted": st["restricted"], "open": st["open"],
+                      "until": _fmt_local(st["until"], tz), "next": _fmt_local(st["next"], tz)})
+    groups = sorted(inv.groups())
+    targets = ["all"] + [g_ for g_ in groups if ops.reboot_targets(inv, g_)] + sorted(managed)
+    previews = [r for r in db.execute("SELECT * FROM jobs WHERE kind='baseline_check' AND status='success' "
+                                      "ORDER BY id DESC LIMIT 20") if ops.preview_state(db, r)[0]]
+    recent = db.execute("SELECT * FROM jobs WHERE kind IN ('baseline_check','baseline_apply','rolling_reboot') "
+                        "ORDER BY id DESC LIMIT 10").fetchall()
+    return render_template("maintenance.html", windows=wins, hosts=hosts, groups=groups, targets=targets, previews=previews,
+                           recent=recent, kinds=jobs.KINDS, days=windows.DAYS, zone=windows.zone_name(db),
+                           now_local=_fmt_local(now, tz), page="maintenance")
+
+
+@bp.post("/maintenance/windows")
+@auth.require("admin")
+def window_add():
+    f = request.form
+    try:
+        wid = windows.add(get_db(), f.get("scope", ""), f.getlist("days"), f.get("start", ""), f.get("minutes", ""),
+                          f.get("note", ""), g.user["username"], set(_inv().groups()))
+    except windows.WindowError as e:
+        flash(str(e), "error")
+    else:
+        _log("window.add", f.get("scope", ""), f"#{wid} {','.join(f.getlist('days'))} {f.get('start')} for {f.get('minutes')} min")
+        flash("Maintenance window saved.", "ok")
+    return redirect(url_for("main.maintenance"))
+
+
+@bp.post("/maintenance/windows/<int:wid>/delete")
+@auth.require("admin")
+def window_delete(wid):
+    if windows.remove(get_db(), wid):
+        _log("window.delete", f"#{wid}")
+        flash("Maintenance window removed.", "ok")
+    return redirect(url_for("main.maintenance"))
+
+
+@bp.post("/maintenance/timezone")
+@auth.require("admin")
+def window_zone():
+    try:
+        windows.set_zone(get_db(), request.form.get("zone", "").strip())
+    except windows.WindowError as e:
+        flash(str(e), "error")
+    else:
+        _log("window.timezone", request.form.get("zone", "").strip())
+        flash("Time zone saved.", "ok")
+    return redirect(url_for("main.maintenance"))
+
+
+@bp.post("/devices/<name>/baseline/preview")
+@auth.require("operator")
+def baseline_preview(name):
+    _devices().get(name) or abort(404)
+    try:
+        job_id = ops.start_preview(current_app._get_current_object(), name, g.user["username"], auth.client_ip(), _inv())
+    except (ops.OpsError, jobs.JobError) as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.device", name=name))
+    return redirect(url_for("main.job", job_id=job_id))
+
+
+@bp.post("/jobs/<int:job_id>/approve")
+@auth.require("admin")
+def baseline_approve(job_id):
+    try:
+        new_id = ops.approve(current_app._get_current_object(), job_id, request.form.get("confirm", ""),
+                             request.form.get("override", ""), g.user["username"], auth.client_ip(), _inv())
+    except (ops.OpsError, jobs.JobError) as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.job", job_id=job_id))
+    return redirect(url_for("main.job", job_id=new_id))
+
+
+@bp.post("/maintenance/reboot")
+@auth.require("admin")
+def rolling_reboot():
+    try:
+        job_id = ops.start_reboot(current_app._get_current_object(), request.form.get("target", ""),
+                                  request.form.get("confirm", ""), request.form.get("override", ""),
+                                  g.user["username"], auth.client_ip(), _inv())
+    except (ops.OpsError, jobs.JobError) as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.maintenance"))
+    return redirect(url_for("main.job", job_id=job_id))
+
+
+# ---- compliance report, backup ---------------------------------------------------------------------------------
+
+@bp.route("/compliance/report")
+@auth.require()
+def compliance_report():
+    rep = report.build(_devices(), current_app.config["ROOT"])
+    _log("report.view")
+    return render_template("report.html", rep=rep, page="compliance")
+
+
+@bp.route("/compliance/report.csv")
+@auth.require()
+def compliance_report_csv():
+    rep = report.build(_devices(), current_app.config["ROOT"])
+    _log("report.export", detail=f"{rep['checks']} checks")
+    return report.to_csv(rep), 200, {"Content-Type": "text/csv; charset=utf-8",
+                                     "Content-Disposition": "attachment; filename=compliance-report.csv"}
+
+
+@bp.post("/settings/backup")
+@auth.require("admin")
+def backup_download():
+    """Build the encrypted archive in memory and send it. Nothing is written to disk and the passphrase is never stored."""
+    cfg = current_app.config
+    if request.form.get("passphrase", "") != request.form.get("passphrase2", ""):
+        flash("The two passphrases differ.", "error")
+        return redirect(url_for("main.settings"))
+    try:
+        blob = backup.create(cfg["DB_PATH"], _inv().dir if not _inv().is_example else "/nonexistent",
+                             request.form.get("passphrase", ""), drift.controller_head(cfg["ROOT"]) or "")
+    except backup.BackupError as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.settings"))
+    _log("backup.download", detail=f"{len(blob)} bytes")
+    name = time.strftime("provisionkit-backup-%Y%m%d-%H%M%S.pkbackup")
+    return blob, 200, {"Content-Type": "application/octet-stream", "Content-Disposition": f"attachment; filename={name}"}
 
 
 # ---- audit, settings -------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {% macro pill(text) -%}
 {% set cls = {'Online':'ok','Compliant':'ok','success':'ok','pass':'ok','Stale':'warn','running':'warn','queued':'idle',
-  'Offline':'bad','Non-compliant':'bad','failed':'bad','fail':'bad','Pending':'idle','Controller':'idle','Current':'ok','Behind':'warn','No manifest':'idle','Unknown commit':'warn','Uncommitted':'warn','Unreadable':'bad','N/A':'idle','Unknown':'idle','na':'idle'}.get(text, 'idle') -%}
+  'Offline':'bad','Non-compliant':'bad','failed':'bad','fail':'bad','Pending':'idle','Controller':'idle','Current':'ok','Behind':'warn','No manifest':'idle','Unknown commit':'warn','Uncommitted':'warn','Unreadable':'bad','N/A':'idle','Unknown':'idle','Open':'ok','Closed':'warn','Unrestricted':'idle','na':'idle'}.get(text, 'idle') -%}
 <span class="pill {{ cls }}">{{ {'na': 'N/A', 'pass': 'Pass', 'fail': 'Fail'}.get(text, text|capitalize if text in ('success','failed','running','queued') else text) }}</span>
 {%- endmacro %}
 
@@ -17,6 +17,7 @@
  'play': '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4V8Z"/>',
  'list': '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
  'gear': '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+ 'wrench': '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z"/>',
  'plus': '<path d="M12 5v14M5 12h14"/>'}[name]|safe }}</svg>
 {%- endmacro %}
 

@@ -4,7 +4,8 @@
 {% block crumbs %}Infrastructure / Compliance{% endblock %}
 {% block content %}
 {% set short = {'ssh_password_auth': 'SSH passwords off', 'ssh_root_login': 'SSH root off', 'ntp_sync': 'Time sync', 'auditd': 'Auditd', 'security_updates': 'Security updates', 'firewall': 'Firewall'} %}
-<div class="page-head"><div><h1>Compliance</h1><p>Baseline posture of every collected device. Results come from read-only checks.</p></div></div>
+<div class="page-head"><div><h1>Compliance</h1><p>Baseline posture of every collected device. Results come from read-only checks.</p></div>
+  <div class="actions"><a class="btn" href="{{ url_for('main.compliance_report') }}">Report</a><a class="btn" href="{{ url_for('main.compliance_report_csv') }}">Download CSV</a></div></div>
 <div class="grid kpis">
   <div class="card kpi"><div class="label">Compliant devices</div><div class="value">{{ s.compliant }} / {{ s.scanned }}</div></div>
   <div class="card kpi"><div class="label">Open findings</div><div class="value">{{ s.findings }}</div></div>

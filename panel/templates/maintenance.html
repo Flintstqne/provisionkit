@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Maintenance{% endblock %}
+{% block crumbs %}Operations / Maintenance{% endblock %}
+{% block content %}
+{% set admin = g.user['role'] == 'admin' %}
+<div class="page-head"><div><h1>Maintenance</h1><p>When changes are allowed, previews waiting for approval, and rolling reboots. Local time here is {{ now_local }} ({{ zone }}).</p></div></div>
+
+<div class="grid cols-2">
+<section class="card"><header><h2>Maintenance windows</h2></header>
+{% if windows %}<div class="table-wrap"><table><thead><tr><th>Applies to</th><th>When</th><th>Now</th><th></th></tr></thead><tbody>
+{% for w in windows %}<tr><td class="mono">{{ w.scope }}</td><td>{{ w.days_text }} {{ w.start }} for {{ w.minutes }} min{% if w.note %}<div class="muted">{{ w.note }}</div>{% endif %}</td>
+  <td>{% if w.open %}{{ pill('Open') }} <span class="muted">until {{ w.until }}</span>{% else %}<span class="muted">next {{ w.next or 'never' }}</span>{% endif %}</td>
+  <td class="num">{% if admin %}<form class="inline" method="post" action="{{ url_for('main.window_delete', wid=w.id) }}" data-confirm="Remove this window?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm">Remove</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<div class="empty">No windows are set, so changes are allowed at any time.</div>{% endif %}
+{% if admin %}<div class="body"><form method="post" action="{{ url_for('main.window_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="field"><label for="w-scope">Applies to</label><select id="w-scope" name="scope"><option value="all">All nodes</option>{% for g_ in groups %}<option>{{ g_ }}</option>{% endfor %}</select></div>
+  <div class="field"><span class="label" id="w-days-l">Days</span><div role="group" aria-labelledby="w-days-l" class="daychecks">{% for d in days %}<label><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in ('sat', 'sun') }}> {{ d|capitalize }}</label> {% endfor %}</div></div>
+  <div class="field"><label for="w-start">Starts at</label><input id="w-start" name="start" type="text" value="02:00" pattern="[01][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]" required><div class="hint">24 hour clock in {{ zone }}.</div></div>
+  <div class="field"><label for="w-min">Length in minutes</label><input id="w-min" name="minutes" type="number" min="15" max="1440" value="120" required></div>
+  <div class="field"><label for="w-note">Note</label><input id="w-note" name="note" type="text" maxlength="80"></div>
+  <button class="btn primary">Add window</button></form></div>
+<div class="body"><form method="post" action="{{ url_for('main.window_zone') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="field"><label for="w-zone">Time zone for windows</label><input id="w-zone" name="zone" type="text" value="{{ zone }}" required></div><button class="btn">Save time zone</button></form></div>{% endif %}
+<p class="muted body">Windows limit changes only: baseline apply and rolling reboot. Collection and validation run any time. Each node's own nightly reboot timer is separate and does not follow these windows.</p>
+</section>
+
+<div>
+<section class="card"><header><h2>Nodes</h2></header>
+{% if hosts %}<div class="table-wrap"><table><thead><tr><th>Node</th><th>Changes allowed</th></tr></thead><tbody>
+{% for h in hosts %}<tr><td><a href="{{ url_for('main.device', name=h.name) }}">{{ h.name }}</a></td>
+  <td>{% if not h.restricted %}{{ pill('Unrestricted') }} <span class="muted">no window set</span>{% elif h.open %}{{ pill('Open') }} <span class="muted">until {{ h.until }}</span>{% else %}{{ pill('Closed') }} <span class="muted">next {{ h.next or 'never' }}</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No node is in workload_nodes.</div>{% endif %}</section>
+
+<section class="card gap-top"><header><h2>Baseline previews waiting for approval</h2></header>
+{% if previews %}<div class="table-wrap"><table><thead><tr><th>Preview</th><th>Node</th><th>Finished</th></tr></thead><tbody>
+{% for p in previews %}<tr><td><a href="{{ url_for('main.job', job_id=p.id) }}">#{{ p.id }}</a></td><td class="mono">{{ p.target }}</td><td class="muted">{{ ago(p.finished) }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="empty">None. Open a device and choose Preview baseline.</div>{% endif %}</section>
+
+{% if admin %}<section class="card gap-top"><header><h2>Rolling reboot</h2></header><div class="body">
+  <p class="muted">Reboots managed nodes one at a time. Each must come back healthy before the next goes down, and the first failure stops the run. The controller is never rebooted from here.</p>
+  <form method="post" action="{{ url_for('main.rolling_reboot') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="r-target">Target</label><select id="r-target" name="target">{% for t in targets %}<option>{{ t }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="r-confirm">Confirm</label><input id="r-confirm" name="confirm" type="text" autocomplete="off" required><div class="hint">Type REBOOT followed by the target, for example REBOOT all.</div></div>
+    <div class="field"><label for="r-override">Outside a window? Reason to override</label><input id="r-override" name="override" type="text" maxlength="200" autocomplete="off"><div class="hint">Leave empty unless the window is closed. The reason goes in the audit log.</div></div>
+    <button class="btn danger">Start rolling reboot</button></form></div></section>{% endif %}
+</div></div>
+
+<section class="card gap-top"><header><h2>Recent changes</h2></header>
+{% if recent %}<div class="table-wrap"><table><thead><tr><th>ID</th><th>Job</th><th>Target</th><th>Status</th><th>Started by</th><th>Created</th></tr></thead><tbody>
+{% for j in recent %}<tr><td><a href="{{ url_for('main.job', job_id=j.id) }}">#{{ j.id }}</a></td><td>{{ kinds[j.kind].label }}</td><td class="mono">{{ j.target }}</td><td>{{ pill(j.status) }}</td><td>{{ j.user }}</td><td class="muted">{{ ago(j.created) }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">Nothing has run yet.</div>{% endif %}</section>
+{% endblock %}

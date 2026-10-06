@@ -6,15 +6,27 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 from .config import ROOT
 from .db import audit, connect, save_snapshot
 
-# Only these playbooks can be started from the panel. All of them are read-only on the targets.
+# Only these playbooks can be started from the panel. The first three are read-only on the targets and any operator may
+# start them. The "mutating" kinds change machines: they start only through panel/ops.py, which checks approval, the
+# maintenance window and the confirmation first. The baseline never includes the firewall role here, because that role
+# asks for a login from a second device and the panel has no terminal to answer.
+SKIP_FIREWALL = ["--skip-tags", "firewall"]
 KINDS = {
-    "collect": {"playbook": "collect.yml", "label": "Collect facts and posture", "scope": "all"},
-    "validate": {"playbook": "validate.yml", "label": "Validate baseline (acceptance checks)", "scope": "workload_nodes"},
-    "preflight": {"playbook": "preflight.yml", "label": "Preflight platform checks", "scope": "all"},
+    "collect": {"steps": [("collect.yml", [])], "label": "Collect facts and posture", "scope": "all"},
+    "validate": {"steps": [("validate.yml", [])], "label": "Validate baseline (acceptance checks)", "scope": "workload_nodes"},
+    "preflight": {"steps": [("preflight.yml", [])], "label": "Preflight platform checks", "scope": "all"},
+    "baseline_check": {"steps": [("baseline.yml", ["--check", "--diff", *SKIP_FIREWALL])], "mutating": True,
+                       "label": "Baseline preview (dry run)", "scope": "workload_nodes"},
+    "baseline_apply": {"steps": [("baseline.yml", SKIP_FIREWALL), ("validate.yml", []), ("collect.yml", [])],
+                       "mutating": True, "then_collect": True, "label": "Baseline apply, validate, collect",
+                       "scope": "workload_nodes"},
+    "rolling_reboot": {"steps": [("reboot_rolling.yml", []), ("collect.yml", [])], "mutating": True, "then_collect": True,
+                       "label": "Rolling reboot", "scope": "workload_nodes", "timeout": 3 * 3600},
 }
 RECAP = re.compile(r"^(\S+)\s*:\s*ok=(\d+)\s+changed=(\d+)\s+unreachable=(\d+)\s+failed=(\d+)", re.M)
 FATAL = re.compile(r"^fatal: \[(\S+?)\]: (FAILED|UNREACHABLE)! => ", re.M)
@@ -29,9 +41,11 @@ class JobError(ValueError):
     pass
 
 
-def start(app, kind, target, user, ip, inv):
+def start(app, kind, target, user, ip, inv, meta=None, mutating_ok=False):
     if kind not in KINDS:
         raise JobError("Unknown job type.")
+    if KINDS[kind].get("mutating") and not mutating_ok:
+        raise JobError("That job changes machines. Start it from the Maintenance page.")
     names = set(inv.hosts()) | set(inv.groups())
     if target != "all" and target not in names:
         raise JobError("Unknown target.")
@@ -39,8 +53,8 @@ def start(app, kind, target, user, ip, inv):
         raise JobError("Another job is running. Wait for it to finish.")
     db = connect(app.config["DB_PATH"])
     try:
-        cur = db.execute("INSERT INTO jobs (kind, target, user, status, created) VALUES (?,?,?,?,?)",
-                         (kind, target, user, "queued", time.time()))
+        cur = db.execute("INSERT INTO jobs (kind, target, user, status, created, meta) VALUES (?,?,?,?,?,?)",
+                         (kind, target, user, "queued", time.time(), json.dumps(meta or {})))
         job_id = cur.lastrowid
         db.commit()
         audit(db, user, "job.start", f"#{job_id}", f"{kind} on {target}", ip)
@@ -57,15 +71,19 @@ def log_path(config, job_id):
     return config["JOB_LOG_DIR"] / f"{int(job_id)}.log"
 
 
-def _command(config, kind, target, inv_dir):
+def _commands(config, kind, target, inv_dir):
+    """The commands one job runs in order. The job stops at the first one that fails."""
     if config["DEMO"]:
-        return [sys.executable, "-c", _DEMO_SCRIPT, kind, target]
-    cmd = ["ansible-playbook", str(ROOT / "playbooks" / KINDS[kind]["playbook"]), "-i", f"{inv_dir}/hosts.yml"]
-    if target != "all":
-        cmd += ["--limit", target]
-    if kind == "collect":
-        cmd += ["-e", f"panel_out_dir={config['SNAPSHOT_DIR']}"]
-    return cmd
+        return [[sys.executable, "-c", _DEMO_SCRIPT, kind, target]]
+    out = []
+    for playbook, extra in KINDS[kind]["steps"]:
+        cmd = ["ansible-playbook", str(ROOT / "playbooks" / playbook), "-i", f"{inv_dir}/hosts.yml"]
+        if target != "all":
+            cmd += ["--limit", target]
+        if playbook == "collect.yml":
+            cmd += ["-e", f"panel_out_dir={config['SNAPSHOT_DIR']}"]
+        out.append(cmd + extra)
+    return out
 
 
 def _run(config, job_id, kind, target, inv_dir):
@@ -76,16 +94,27 @@ def _run(config, job_id, kind, target, inv_dir):
         db.execute("UPDATE jobs SET status='running', started=? WHERE id=?", (started, job_id))
         db.commit()
         env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_FORCE_COLOR="0", PYTHONUNBUFFERED="1")
+        timeout = KINDS[kind].get("timeout", TIMEOUT_S)
+        code = 0
         try:
             with open(path, "w") as log:
-                proc = subprocess.Popen(_command(config, kind, target, inv_dir), cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=log, stderr=subprocess.STDOUT)
-                try:
-                    code = proc.wait(timeout=TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    log.write("\n[panel] killed after timeout\n")
-                    code = -9
+                commands = _commands(config, kind, target, inv_dir)
+                for n, cmd in enumerate(commands, 1):
+                    if len(commands) > 1:
+                        log.write(f"\n[panel] step {n} of {len(commands)}: {Path(cmd[1]).name}\n")
+                        log.flush()
+                    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                                            stderr=subprocess.STDOUT)
+                    try:
+                        code = proc.wait(timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        log.write("\n[panel] killed after timeout\n")
+                        code = -9
+                    if code:
+                        if n < len(commands):
+                            log.write(f"\n[panel] step {n} failed, so the remaining steps were not run\n")
+                        break
         except OSError as e:
             path.write_text(f"[panel] could not start ansible-playbook: {e}\n")
             code = 127
@@ -131,10 +160,11 @@ def _ingest(db, config, job_id, kind, text, started):
         down = r["unreachable"] or (kind == "collect" and r["failed"])
         db.execute("INSERT OR REPLACE INTO host_status VALUES (?,?,?,?)",
                    (host, 0 if down else 1, now, r["message"] if down else ""))
-    if config["DEMO"] and kind == "collect":
+    collects = kind == "collect" or KINDS[kind].get("then_collect")
+    if config["DEMO"] and collects:
         db.execute("UPDATE snapshots SET collected=?", (now,))
         db.execute("UPDATE host_status SET reachable=1, detail=''")
-    elif kind == "collect":
+    elif collects:
         for f in config["SNAPSHOT_DIR"].glob("*.json"):
             if f.stat().st_mtime < started - 1:
                 continue

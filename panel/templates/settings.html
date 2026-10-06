@@ -28,6 +28,12 @@
   <dl class="props">
     <dt>Next run</dt><dd>{% if next_run %}{{ next_run|int|timestamp }} UTC{% else %}Not scheduled{% endif %}</dd>
     <dt>Last collection</dt><dd>{% if last_run %}<a href="{{ url_for('main.job', job_id=last_run.id) }}">Job #{{ last_run.id }}</a> {{ ago(last_run.created) }} ({{ last_run.status }}){% else %}None yet{% endif %}</dd></dl></section>
+<section class="card gap-top"><header><h2>Backup</h2></header><div class="body">
+  <form method="post" action="{{ url_for('main.backup_download') }}" autocomplete="off"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="bp1">Passphrase</label><input id="bp1" name="passphrase" type="password" required minlength="16" autocomplete="new-password"><div class="hint">At least 16 characters. It encrypts the file and is not stored, so a lost passphrase means a lost backup.</div></div>
+    <div class="field"><label for="bp2">Repeat passphrase</label><input id="bp2" name="passphrase2" type="password" required minlength="16" autocomplete="new-password"></div>
+    <button class="btn primary">Download encrypted backup</button></form>
+  <p class="muted">Holds users, snapshots, jobs, the audit log, settings, maintenance windows and the inventory files. It leaves out SSH keys and the session secret. Restore on the controller with <span class="mono">provisionkit restore FILE</span>.</p></div></section>
 <section class="card gap-top"><header><h2>Runtime</h2></header><dl class="props">
   <dt>Mode</dt><dd>{{ 'Demo (synthetic data)' if cfg.DEMO else 'Live' }}</dd><dt>Stale after</dt><dd>{{ (stale_after / 3600)|round(1) }} h</dd>
   <dt>Secure cookies</dt><dd>{{ 'Yes' if cfg.SESSION_COOKIE_SECURE else 'No (set PANEL_SECURE_COOKIE=1 behind HTTPS)' }}</dd></dl></section>

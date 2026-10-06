@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+{% block title %}Compliance report{% endblock %}
+{% block crumbs %}Infrastructure / <a href="{{ url_for('main.compliance') }}">Compliance</a> / Report{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Compliance report</h1><p>Generated {{ rep.generated|int|timestamp }} UTC against controller commit <span class="mono">{{ rep.controller_commit[:12] or 'unknown' }}</span>.</p></div>
+  <div class="actions no-print"><button type="button" class="btn" data-print>Print or save as PDF</button><a class="btn primary" href="{{ url_for('main.compliance_report_csv') }}">Download CSV</a></div></div>
+<div class="grid kpis">
+  <div class="card kpi"><div class="label">Devices reported</div><div class="value">{{ rep.devices }}</div></div>
+  <div class="card kpi"><div class="label">Checks passed</div><div class="value">{{ rep.passed }} / {{ rep.passed + rep.failed }}</div></div>
+  <div class="card kpi"><div class="label">Failed checks</div><div class="value">{{ rep.failed }}</div></div>
+</div>
+{% if rep.pending %}<p class="muted report-meta">No data yet for: {{ rep.pending|join(', ') }}.</p>{% endif %}
+<section class="card gap-top"><header><h2>Every check</h2></header>
+{% if rep.rows %}<div class="table-wrap"><table><thead><tr><th>Device</th><th>Check</th><th>Result</th><th>Collected (UTC)</th><th>Baseline commit on node</th></tr></thead><tbody>
+{% for r in rep.rows %}<tr><td>{{ r.device }}</td><td>{{ r.check }}</td><td>{{ pill({'Pass': 'pass', 'Fail': 'fail', 'N/A': 'na'}[r.result]) }}</td><td class="muted">{{ r.collected|int|timestamp if r.collected else '' }}</td><td class="mono">{{ r.baseline_commit[:12] }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No device has been collected yet.</div>{% endif %}</section>
+{% endblock %}

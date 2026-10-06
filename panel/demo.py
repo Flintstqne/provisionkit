@@ -115,5 +115,8 @@ def seed(config, inv_dir):
         db.execute("INSERT OR REPLACE INTO host_status VALUES (?,?,?,?)",
                    (name, 0 if state == "offline" else 1, now - age,
                     "Failed to connect to the host via ssh: Connection timed out" if state == "offline" else ""))
+    if not db.execute("SELECT 1 FROM maintenance_windows").fetchone():
+        db.execute("INSERT INTO maintenance_windows (scope, days, start, minutes, note, created_by, created) VALUES "
+                   "('workload_nodes', 'sat,sun', '02:00', 180, 'Weekend patch window', 'demo', ?)", (now,))
     db.commit()
     db.close()

@@ -1,6 +1,6 @@
 # Panel feature ideas
 
-Ideas for the Control Center, grouped by theme. None of these exist yet. Each entry says what it does, why it matters,
+The Operations ideas (11 to 15) are built. See [operations.md](operations.md). The rest are ideas for the Control Center, grouped by theme. None of these exist yet. Each entry says what it does, why it matters,
 what it costs and what could go wrong. The order inside a group is the order I would build them.
 
 ## Security
@@ -29,16 +29,15 @@ what it costs and what could go wrong. The order inside a group is the order I w
 
 ## Operations
 
-11. **Run baseline from the panel with approval.** The same dry run, confirmation and validation as the command line,
-    with the dry-run diff on screen and an admin approval step. Needs the most care because it changes machines.
-12. **Maintenance windows.** Declare a window per group. Scheduled jobs and nightly reboots respect it, and alerts
-    pause inside it.
-13. **Rolling reboot.** Reboot nodes one at a time and wait for each to return before the next. Works with nightly
-    reboot as an alternative to every machine rebooting at midnight.
-14. **Compliance report export.** A PDF or CSV of every check per device with a timestamp and the commit it ran against.
-    Useful as portfolio evidence and as an audit artifact.
-15. **Backup and restore of the panel data.** One command and one button that write the database and settings to an
-    encrypted archive.
+11. **Run baseline from the panel with approval. Built.** A dry run, then an admin approves it by typing the node's name.
+    The firewall role stays on the command line because it needs a second login.
+12. **Maintenance windows. Built.** Per group, weekdays and a start time. They gate baseline apply and rolling reboot, with
+    an audited override. They do not move the nodes' own nightly reboot timers, and alerts do not exist yet.
+13. **Rolling reboot. Built.** One node at a time, each must report healthy before the next, the first failure stops the run.
+14. **Compliance report export. Built.** An on-screen report that prints to PDF from the browser, plus a CSV, with the
+    collection time and the baseline commit per node.
+15. **Backup and restore of the panel data. Built.** An encrypted archive from the Settings page or the command line, and a
+    checked restore from the command line.
 
 ## Usability
 

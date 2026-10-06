@@ -141,3 +141,6 @@ if (logEl) {
     if (d && d.available && d.available.behind > 0) $("update-dot").hidden = false;
   }).catch(() => {});
 })();
+
+// Print buttons (the compliance report): data-print.
+document.querySelectorAll("[data-print]").forEach((btn) => btn.addEventListener("click", () => window.print()));

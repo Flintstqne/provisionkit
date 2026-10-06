@@ -3,12 +3,12 @@
 {% block title %}Jobs{% endblock %}
 {% block crumbs %}Operations / Jobs{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Jobs</h1><p>Read-only playbook runs started from the panel. One job runs at a time.</p></div></div>
+<div class="page-head"><div><h1>Jobs</h1><p>Playbook runs started from the panel. One job runs at a time. Jobs that change machines start from <a href="{{ url_for('main.maintenance') }}">Maintenance</a>.</p></div></div>
 {% if g.user['role'] != 'viewer' %}
 <section class="card"><header><h2>Run a job</h2></header><div class="body">
 <form method="post" class="actions">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label class="muted" for="kind">Job</label><select id="kind" name="kind">{% for k, v in kinds.items() %}<option value="{{ k }}">{{ v.label }}</option>{% endfor %}</select>
+  <label class="muted" for="kind">Job</label><select id="kind" name="kind">{% for k, v in runnable.items() %}<option value="{{ k }}">{{ v.label }}</option>{% endfor %}</select>
   <label class="muted" for="target">Target</label><select id="target" name="target">{% for t in targets %}<option>{{ t }}</option>{% endfor %}</select>
   <button class="btn primary">Run</button>
 </form></div></section>

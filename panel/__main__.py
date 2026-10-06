@@ -1,8 +1,11 @@
-"""CLI: python -m panel {run,create-user,init-inventory,demo}"""
+"""CLI: python -m panel {run,create-user,init-inventory,demo,backup,restore}"""
 import argparse
 import getpass
+import os
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import auth, create_app
 from .config import INSTANCE
@@ -22,6 +25,13 @@ def main(argv=None):
     sub.add_parser("init-inventory", help="copy inventories/example to inventories/local so devices can be added")
     d = sub.add_parser("demo", help="serve synthetic demo data on loopback (no lab, no Ansible needed)")
     d.add_argument("--port", type=int, default=8080)
+    b = sub.add_parser("backup", help="write an encrypted backup of the panel data (prompts for a passphrase)")
+    b.add_argument("--out", required=True, help="file to write, for example /home/you/pk.pkbackup")
+    b.add_argument("--passphrase-file", help="read the passphrase from this file instead of asking")
+    r = sub.add_parser("restore", help="replace the panel data from a backup. Stop the panel first.")
+    r.add_argument("file")
+    r.add_argument("--passphrase-file", help="read the passphrase from this file instead of asking")
+    r.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     a = p.parse_args(argv)
 
     if a.cmd == "init-inventory":
@@ -44,6 +54,8 @@ def main(argv=None):
         except Exception:
             sys.exit("Could not create user (does it already exist?).")
         print(f"Created {a.role} {a.username}.")
+    elif a.cmd in ("backup", "restore"):
+        sys.exit(_backup_command(a))
     elif a.cmd == "demo":
         from . import demo
         demo_dir = INSTANCE / "demo"
@@ -66,6 +78,47 @@ def main(argv=None):
         serve(app, "127.0.0.1", a.port)
     else:
         serve(create_app(), a.host, a.port)
+
+
+def _passphrase(a, confirm):
+    if a.passphrase_file:
+        return Path(a.passphrase_file).read_text().rstrip("\n")
+    pw = getpass.getpass("Backup passphrase: ")
+    if confirm and pw != getpass.getpass("Repeat: "):
+        sys.exit("Passphrases differ.")
+    return pw
+
+
+def _backup_command(a):
+    from . import backup
+    from .config import ROOT, Config, inventory_dir
+    inv = inventory_dir()
+    try:
+        if a.cmd == "backup":
+            out = Path(a.out).resolve()
+            if out.exists():
+                return f"{out} already exists. Choose another file name."
+            head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            example = (ROOT / "inventories" / "example").resolve()
+            blob = backup.create(Config.DB_PATH, inv if inv.resolve() != example else "/nonexistent", _passphrase(a, True), head)
+            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(blob)
+            print(f"Wrote {out} ({len(blob)} bytes). Keep the passphrase: it cannot be recovered.")
+            return 0
+        blob = Path(a.file).read_bytes()
+        pw = _passphrase(a, False)
+        manifest, files = backup.read(blob, pw)  # checks everything before anything is replaced
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(manifest.get("created", 0)))
+        print(f"Backup from {when}, {len(files)} file(s), controller commit {manifest.get('commit', '')[:12] or 'unknown'}.")
+        if not a.yes and input("Type restore to replace this panel's data with it: ").strip() != "restore":
+            return "Stopped. Nothing was changed."
+        info = backup.restore(blob, pw, Config.DB_PATH, Path(os.environ.get("PANEL_INVENTORY") or ROOT / "inventories" / "local"))
+        print(f"Restored {info['files']} file(s). The previous data was kept as: " + (", ".join(info["kept"]) or "(none)"))
+        print("Everyone is signed out. Restart the panel to load the data: sudo systemctl restart provisionkit-panel")
+        return 0
+    except (backup.BackupError, OSError) as e:
+        return f"Error: {e}"
 
 
 def serve(app, host, port):

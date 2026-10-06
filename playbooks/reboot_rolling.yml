@@ -1,0 +1,49 @@
+---
+# Reboot managed nodes one at a time. A node must come back healthy before the next one goes down, and any
+# failure stops the whole run, so at most one node is ever down. The controller is not in workload_nodes, so it
+# is never rebooted.
+#   ansible-playbook playbooks/reboot_rolling.yml --limit workload_nodes
+- name: Check every node is reachable before touching any
+  hosts: workload_nodes
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+  tasks:
+    - name: Reach the node
+      ansible.builtin.ping:
+
+- name: Reboot one node at a time
+  hosts: workload_nodes
+  serial: 1
+  any_errors_fatal: true
+  become: true
+  vars:
+    ansible_user: "{{ provisionkit_deploy_user }}"
+    ansible_ssh_private_key_file: "{{ provisionkit_deploy_key_file }}"
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+    rolling_reboot_timeout: "{{ provisionkit_reboot_timeout | default(600) }}"
+  tasks:
+    - name: Reboot and wait for the node to answer again
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ rolling_reboot_timeout }}"
+        msg: "ProvisionKit rolling reboot"
+
+    - name: Wait for the system to finish starting  # noqa command-instead-of-module
+      ansible.builtin.command: systemctl is-system-running --wait
+      register: rolling_reboot_state
+      changed_when: false
+      failed_when: false
+      retries: 10
+      delay: 6
+      until: rolling_reboot_state.stdout | trim in ['running', 'degraded']
+
+    - name: Stop the run if this node did not come back healthy
+      ansible.builtin.assert:
+        that: rolling_reboot_state.stdout | trim == 'running'
+        fail_msg: >-
+          {{ inventory_hostname }} came back but systemd reports '{{ rolling_reboot_state.stdout | trim }}'.
+          The remaining nodes were not rebooted.
+        quiet: true

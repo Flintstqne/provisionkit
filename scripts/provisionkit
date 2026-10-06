@@ -6,6 +6,8 @@
   provisionkit check-updates   fetch from GitHub and record whether an update is waiting (the panel's timer runs this)
   provisionkit baseline H apply the hardening baseline to one node: dry run, confirmation, apply, then validate
   provisionkit nightly-reboot enable|disable|status   nightly reboot of this controller (nodes use the baseline role)
+  provisionkit backup F   write an encrypted backup of the panel data to file F
+  provisionkit restore F  replace the panel data from backup F (stops the panel briefly)
   provisionkit status     show the version, whether an update is waiting, and the panel state
   provisionkit version    print the installed version
   provisionkit install    put this command on your PATH (/usr/local/bin/provisionkit), needs sudo
@@ -461,6 +463,41 @@ class Kit:
         if not valid:
             raise Failure("Validation failed after applying.")
 
+    # ---- backup and restore of the panel data -----------------------------------------------------------------------
+    def backup(self, out, passphrase_file=None):
+        """Write an encrypted backup of the panel data. The passphrase is asked for on the terminal."""
+        cmd = [self.py, "-m", "panel", "backup", "--out", str(Path(out).expanduser().resolve())]
+        if passphrase_file:
+            cmd += ["--passphrase-file", str(Path(passphrase_file).expanduser().resolve())]
+        if self.run_live(cmd):
+            raise Failure("The backup was not written.")
+
+    def restore(self, file, passphrase_file=None, yes=False):
+        """Replace the panel data from a backup. The panel is stopped while the data is swapped and started again after."""
+        src = Path(file).expanduser().resolve()
+        if not src.is_file():
+            raise Failure(f"{src} does not exist.")
+        cmd = [self.py, "-m", "panel", "restore", str(src)]
+        if passphrase_file:
+            cmd += ["--passphrase-file", str(Path(passphrase_file).expanduser().resolve())]
+        if yes:
+            cmd += ["--yes"]
+        stopped = False
+        if self.service_installed():
+            active = self.sh(["systemctl", "is-active", "provisionkit-panel.service"], check=False, root=True)
+            if active.stdout.strip() == "active":
+                self.out("Stopping the panel while the data is replaced ...")
+                self.sh(["systemctl", "stop", "provisionkit-panel.service"], root=True)
+                stopped = True
+        try:
+            code = self.run_live(cmd)
+        finally:
+            if stopped:
+                self.sh(["systemctl", "start", "provisionkit-panel.service"], check=False, root=True)
+                self.out("Panel started again.")
+        if code:
+            raise Failure("The restore did not complete. If the passphrase or file was wrong, nothing was changed.")
+
     # ---- nightly reboot of the controller ---------------------------------------------------------------------------
     def nightly_reboot(self, action, time="00:00", timezone=None, max_wait=30, only_if_required=False):
         """Install, remove or report a nightly reboot timer on this machine. Managed nodes get theirs from the baseline."""
@@ -597,6 +634,8 @@ def needs_root(kit, command, action=None):
     """update needs root only to restart the panel; install always does; nightly-reboot only to change things."""
     if command == "nightly-reboot":
         return action in ("enable", "disable")
+    if command == "restore":
+        return kit.service_installed()
     return command == "install" or (command in ("update", "check-updates") and kit.service_installed())
 
 
@@ -623,6 +662,13 @@ def main(argv=None, kit=None):
     nr.add_argument("--timezone", help="set this machine's time zone first, for example America/New_York")
     nr.add_argument("--max-wait", type=int, default=30, help="minutes to wait for updates to finish (default 30)")
     nr.add_argument("--only-if-required", action="store_true", help="reboot only when a reboot is pending")
+    bk = sub.add_parser("backup", help="write an encrypted backup of the panel data")
+    bk.add_argument("out", help="file to create, for example ~/provisionkit.pkbackup")
+    bk.add_argument("--passphrase-file", help="read the passphrase from this file instead of asking")
+    rs = sub.add_parser("restore", help="replace the panel data from a backup (stops the panel briefly)")
+    rs.add_argument("file")
+    rs.add_argument("--passphrase-file", help="read the passphrase from this file instead of asking")
+    rs.add_argument("--yes", action="store_true", help="skip the typed confirmation")
     sub.add_parser("check", help="run the health checks")
     st = sub.add_parser("status", help="show version, pending update and panel state")
     st.add_argument("--no-fetch", action="store_true", help="do not contact GitHub")
@@ -660,6 +706,12 @@ def main(argv=None, kit=None):
             return 1 if any(r.level == "fail" for r in results) else 0
         if a.command == "baseline":
             kit.baseline(a.host, a.tags, a.check_only, a.yes, a.ask_vault_pass, a.allow_dirty)
+            return 0
+        if a.command == "backup":
+            kit.backup(a.out, a.passphrase_file)
+            return 0
+        if a.command == "restore":
+            kit.restore(a.file, a.passphrase_file, a.yes)
             return 0
         if a.command == "nightly-reboot":
             kit.nightly_reboot(a.action, a.time, a.timezone, a.max_wait, a.only_if_required)
