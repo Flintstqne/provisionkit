@@ -22,7 +22,12 @@ def main(argv=None):
     u = sub.add_parser("create-user", help="create a user (prompts for the password)")
     u.add_argument("username")
     u.add_argument("--role", choices=auth.ROLES, default="admin")
-    sub.add_parser("init-inventory", help="copy inventories/example to inventories/local so devices can be added")
+    u.add_argument("--password-file", help="read the password from this file instead of asking")
+    ii = sub.add_parser("init-inventory", help="copy inventories/example to inventories/local so devices can be added")
+    ii.add_argument("--auto", action="store_true", help="make it usable at once: this machine as the controller, keys filled in")
+    ii.add_argument("--deploy-key", help="with --auto: the deploy private key (its .pub is read). Default ~/.ssh/provisionkit_ed25519")
+    ii.add_argument("--admin-key", help="with --auto: the public key for the admin account on managed nodes")
+    ii.add_argument("--address", help="with --auto: this controller's address (default: detected)")
     d = sub.add_parser("demo", help="serve synthetic demo data on loopback (no lab, no Ansible needed)")
     d.add_argument("--port", type=int, default=8080)
     b = sub.add_parser("backup", help="write an encrypted backup of the panel data (prompts for a passphrase)")
@@ -36,13 +41,19 @@ def main(argv=None):
 
     if a.cmd == "init-inventory":
         try:
-            print(f"Created {init_local()}. Replace the documentation addresses and keys before use.")
+            if a.auto:
+                print(f"Created {init_local(auto=_auto_settings(a))}. Add managed nodes in the panel.")
+            else:
+                print(f"Created {init_local()}. Replace the documentation addresses and keys before use.")
         except InventoryError as e:
             sys.exit(str(e))
     elif a.cmd == "create-user":
-        pw = getpass.getpass("Password: ")
-        if pw != getpass.getpass("Repeat: "):
-            sys.exit("Passwords differ.")
+        if a.password_file:
+            pw = Path(a.password_file).read_text().rstrip("\n")
+        else:
+            pw = getpass.getpass("Password: ")
+            if pw != getpass.getpass("Repeat: "):
+                sys.exit("Passwords differ.")
         app = create_app()
         try:
             db = connect(app.config["DB_PATH"])
@@ -78,6 +89,24 @@ def main(argv=None):
         serve(app, "127.0.0.1", a.port)
     else:
         serve(create_app(), a.host, a.port)
+
+
+def _auto_settings(a):
+    """Everything --auto needs, each with a clear message when it is missing."""
+    import socket
+    from .inventory import detect_address, first_authorized_key
+    key = Path(a.deploy_key or Path.home() / ".ssh" / "provisionkit_ed25519").expanduser()
+    pub = Path(str(key) + ".pub")
+    if not pub.is_file():
+        sys.exit(f"{pub} not found. Create the deploy key first: ssh-keygen -t ed25519 -N '' -C provisionkit-deploy -f {key}")
+    address = a.address or detect_address()
+    if not address:
+        sys.exit("Could not detect this machine's address. Pass --address.")
+    admin = a.admin_key or first_authorized_key()
+    if not admin:
+        sys.exit("No admin SSH key. Pass --admin-key 'ssh-ed25519 AAAA... you@laptop' (the key you log in to your servers with).")
+    return {"name": socket.gethostname().split(".")[0].lower(), "address": address, "deploy_key_file": str(key),
+            "deploy_public_key": pub.read_text().strip(), "admin_key": admin.strip()}
 
 
 def _passphrase(a, confirm):

@@ -1,8 +1,10 @@
 """Read and edit the Ansible inventory. The inventory files stay the single source of truth."""
 import ipaddress
+import json
 import os
 import re
 import shutil
+import socket
 import sys
 import tempfile
 import time
@@ -167,10 +169,56 @@ def _mask(key, value):
     return value if isinstance(value, (int, float, bool, type(None))) else str(value)
 
 
-def init_local(root=ROOT):
-    """Copy the example inventory to inventories/local for editing."""
+def detect_address():
+    """The address this machine uses to reach the network. A UDP connect sends no packet, it only picks a route."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("192.0.2.1", 9))
+            addr = sock.getsockname()[0]
+        return None if addr.startswith("127.") or addr == "0.0.0.0" else addr
+    except OSError:
+        return None
+
+
+def first_authorized_key(home=None):
+    """The first public key in the installing user's authorized_keys: usually the key of their own workstation."""
+    f = Path(home or Path.home()) / ".ssh" / "authorized_keys"
+    try:
+        for line in f.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and line.split()[0].startswith(("ssh-", "ecdsa-", "sk-")):
+                return line
+    except OSError:
+        pass
+    return None
+
+
+def init_local(root=ROOT, auto=None):
+    """Copy the example inventory to inventories/local for editing.
+
+    With `auto` (a dict: name, address, deploy_key_file, deploy_public_key, admin_key) the copy is made usable at once: the
+    controller is this machine, no managed nodes yet (add them in the panel), the controller is the only management source,
+    and the deploy and admin keys are filled in. Without it the example is copied unchanged."""
     dest = root / "inventories" / "local"
     if dest.exists():
         raise InventoryError(f"{dest} already exists.")
     shutil.copytree(root / "inventories" / "example", dest)
+    if not auto:
+        return dest
+    hosts = {"all": {"children": {"controllers": {"hosts": {auto["name"]: {"ansible_host": auto["address"]}}}}}}
+    for group in ("workload_nodes", "docker_hosts", "monitoring_servers", "k3s_servers", "k3s_agents", "llm_servers"):
+        hosts["all"]["children"][group] = {"hosts": {}}
+    y = _yaml()
+    with open(dest / "hosts.yml", "w") as f:
+        f.write("---\n# Written by the installer. Add managed nodes in the panel (Devices, Add device).\n")
+        y.dump(hosts, f)
+    gv = dest / "group_vars" / "all.yml"
+    text = gv.read_text()
+    text = re.sub(r"^provisionkit_management_sources:\n(?:  - .*\n)+",
+                  f"provisionkit_management_sources:\n  - {auto['address']}/32  # this controller\n", text, flags=re.M)
+    text = re.sub(r"^provisionkit_deploy_public_key:.*$", "provisionkit_deploy_public_key: " + json.dumps(auto["deploy_public_key"]),
+                  text, flags=re.M)
+    text = re.sub(r"^provisionkit_deploy_key_file:.*$", "provisionkit_deploy_key_file: " + auto["deploy_key_file"], text, flags=re.M)
+    text = re.sub(r"^(    ssh_keys: )\[.*\]$", lambda m: m.group(1) + "[" + json.dumps(auto["admin_key"]) + "]", text, flags=re.M)
+    gv.write_text(text)
     return dest

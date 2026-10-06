@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install ProvisionKit Control Center on the controller as a systemd service. Safe to run again.
-#   sudo scripts/install_panel.sh [--user NAME] [--port 8080]
+#   sudo scripts/install_panel.sh [--user NAME] [--port 8080] [--admin NAME --admin-password-file FILE]
 #   scripts/install_panel.sh --print-unit [NAME] # show a unit it would install, change nothing. NAME is one of:
 #                                                panel (default), update, update-path, check, check-timer
 #   sudo scripts/install_panel.sh --no-systemd   # everything except the service (used for testing)
@@ -14,6 +14,8 @@ PRINT_UNIT=0
 UNIT_NAME=panel
 NO_SYSTEMD=0
 SKIP_USER=0
+ADMIN_NAME=
+ADMIN_PW_FILE=
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -24,6 +26,8 @@ while [ $# -gt 0 ]; do
       case "${1:-}" in panel | update | update-path | check | check-timer) UNIT_NAME="$1"; shift ;; esac ;;
     --no-systemd) NO_SYSTEMD=1; shift ;;
     --skip-admin) SKIP_USER=1; shift ;;
+    --admin) ADMIN_NAME="${2:?--admin needs a name}"; shift 2 ;;
+    --admin-password-file) ADMIN_PW_FILE="${2:?--admin-password-file needs a path}"; shift 2 ;;
     -h | --help) sed -n '2,6p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -97,8 +101,13 @@ import sqlite3, pathlib
 p = pathlib.Path('panel/instance/panel.db')
 print(sqlite3.connect(p).execute('select count(*) from users').fetchone()[0] if p.exists() else 0)\"" 2> /dev/null || echo 0)"
   if [ "$count" = 0 ]; then
-    read -rp "Admin username: " admin
-    in_repo ".venv/bin/python -m panel create-user '$admin' --role admin"
+    if [ -n "$ADMIN_NAME" ] && [ -n "$ADMIN_PW_FILE" ]; then
+      case "$ADMIN_NAME" in *[!A-Za-z0-9._-]* | '') die "the admin name may contain letters, digits, dot, dash and underscore." ;; esac
+      in_repo ".venv/bin/python -m panel create-user '$ADMIN_NAME' --role admin --password-file '$ADMIN_PW_FILE'"
+    else
+      read -rp "Admin username: " admin
+      in_repo ".venv/bin/python -m panel create-user '$admin' --role admin"
+    fi
   else
     echo "$count user(s) already exist."
   fi

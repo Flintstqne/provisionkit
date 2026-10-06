@@ -10,6 +10,7 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 | ![Device](../docs/panel/device.png) | ![Compliance](../docs/panel/compliance.png) |
 | ![Guided setup](../docs/panel/setup.png) | ![Settings](../docs/panel/settings.png) |
 | ![Config drift](../docs/panel/drift.png) | ![Update dialog](../docs/panel/update.png) |
+| ![Maintenance](../docs/panel/maintenance.png) | ![Baseline approval](../docs/panel/approve.png) |
 
 ## What it does
 
@@ -35,6 +36,8 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
   live progress. A dot means GitHub has a newer `main`. See [../docs/panel-update.md](../docs/panel-update.md).
 - **Compliance**: matrix of posture checks per device (SSH password login, root login, time sync, auditd rules,
   security-only updates, firewall).
+- **Maintenance and operations**: baseline preview then approval, maintenance windows, rolling reboot, compliance report,
+  encrypted backup. See [../docs/operations.md](../docs/operations.md).
 - **Jobs**: run `collect`, `validate` or `preflight` against all hosts, a group or one host. Live output, per-host
   results, one job at a time (the controller is small).
 - **Audit log**: sign-ins, inventory changes, jobs. Roles: viewer, operator, admin.
@@ -44,8 +47,9 @@ Raspberry Pi is enough): Flask, SQLite and server-rendered HTML. No Node, no bui
 
 `playbooks/collect.yml` gathers facts and runs read-only checks on each target (it changes nothing there). It writes
 one JSON file per host on the controller. The panel ingests those files into SQLite and parses the play recap to
-record which hosts were unreachable. The panel can only start the three allow-listed playbooks above. It cannot run
-`baseline`, `bootstrap` or any playbook that changes a server.
+record which hosts were unreachable. Operators can start only the three read-only playbooks above. Playbooks that change
+servers (baseline apply, rolling reboot) start only through the approval and confirmation flow in `ops.py`. `bootstrap` and
+the firewall role are never run from the panel.
 
 ## Run it
 
@@ -95,13 +99,12 @@ command line first, and their SSH host key in the controller's `known_hosts` (`a
 
 ## Status
 
-Tested: 68 pytest cases (auth, roles, CSRF, lockout, inventory editing and validation, job runner, fleet states,
-log parsing, setup checklist, host key trust, scheduler). The host key tests run against a real throwaway sshd and are
-skipped where none is installed. The whole flow (collect fails on an untrusted key, trust it in the panel, collect
-succeeds, device goes Online) was also run once over real SSH and real Ansible against a local sshd. `collect.yml` was run end to end through the panel's job runner against localhost with real
-`ansible-core` 2.19. **Not tested** against real remote servers, over SSH, or on the Raspberry Pi. The unreachable-host
-path is covered only by a parser test on sample output. There is no TLS, password reset or per-user history beyond the
-audit log. Facts are a point-in-time snapshot; there is no metrics history.
+Tested: the panel has its own pytest files (see the Testing table in the [main README](../README.md)) covering auth, roles,
+CSRF, lockout, inventory editing, the job runner, fleet states, log parsing, the setup checklist, host key trust against a real
+throwaway sshd, the scheduler, drift, maintenance windows, approvals and backup. Running for real: on a Raspberry Pi 4
+controller behind a Cloudflare tunnel, collecting from one Ubuntu server over SSH. Not yet run on real machines: the
+baseline apply and rolling reboot from the panel, and the Update button's systemd units. There is no TLS of its own (use the
+tunnel or a proxy), password reset, two-factor sign-in or metrics history.
 
 ```
 make check        # includes the panel tests

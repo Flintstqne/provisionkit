@@ -41,6 +41,11 @@ def validate(inv_dir, example=False):
             errs.append(f"provisionkit_management_sources contains {s}")
     if not any(u.get("ssh_keys") for u in gv.get("provisionkit_admin_users") or []):
         errs.append("provisionkit_admin_users has no SSH key")
+    if not example:  # keys copied from the example inventory would be installed on real servers
+        keys = [gv.get("provisionkit_deploy_public_key", "")] + [k for u in gv.get("provisionkit_admin_users") or []
+                                                              for k in u.get("ssh_keys") or []]
+        if any("replace-in-local-inventory" in str(k) for k in keys):
+            errs.append("an SSH public key is still the example placeholder (replace-in-local-inventory)")
     return errs
 
 
