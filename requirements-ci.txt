@@ -1,7 +1,7 @@
 # Exact versions CI installs, so a green run means the same tools you use locally. Dependabot proposes updates.
 # Python 3.11 matches the controller (Raspberry Pi OS / Debian 12), hence ansible-core below 2.20.
 ansible-core==2.19.14
-ansible-lint==26.9.0
+ansible-lint==26.10.1
 yamllint==1.38.0
 pyyaml==6.0.3
 pytest==9.1.1
