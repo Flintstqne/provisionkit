@@ -4,7 +4,7 @@ ansible-core==2.19.14
 ansible-lint==26.9.0
 yamllint==1.38.0
 pyyaml==6.0.3
-pytest==9.1.1
+pytest==9.2.0
 flask==3.1.3
 werkzeug==3.1.9
 jinja2==3.1.6
